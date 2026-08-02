@@ -23,7 +23,7 @@ git -C "$SING_BOX_DIR" checkout --detach "$SING_BOX_REF"
   cd "$SING_BOX_DIR"
   python3 <<'PATCH'
 from pathlib import Path
-p=Path("vendor/upstream/sing-box/cmd/internal/build_libbox/main.go")
+p=Path("cmd/internal/build_libbox/main.go")
 t=p.read_text()
 t=t.replace('"-libname=box",','')
 p.write_text(t)
