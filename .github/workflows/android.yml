@@ -67,6 +67,12 @@ jobs:
           echo "=== PATH ==="
           echo "$PATH"
 
+      - name: Pin gomobile
+        run: |
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          gomobile init
+          gomobile version || true
+
       - name: Build native libbox engine
         run: ./scripts/build_libbox_android.sh
 
