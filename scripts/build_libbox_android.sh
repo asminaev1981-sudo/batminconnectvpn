@@ -28,6 +28,7 @@ p = Path("cmd/internal/build_libbox/main.go")
 t = p.read_text()
 
 t = t.replace("-libname=box,", "")
+t = t.replace("-libname=box", "")
 t = t.replace("-buildvcs=false", "")
 
 p.write_text(t)
