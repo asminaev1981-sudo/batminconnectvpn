@@ -1,0 +1,29 @@
+name: batmin_connect
+description: Batmin Connect — secure connection client for Batmin Platform.
+publish_to: none
+version: 0.6.4+10
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  http: ^1.2.2
+  shared_preferences: ^2.3.2
+  flutter_secure_storage: ^9.2.2
+  provider: ^6.1.2
+  qr_code_scanner_plus: ^2.0.10+1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/config/
+    - assets/certs/

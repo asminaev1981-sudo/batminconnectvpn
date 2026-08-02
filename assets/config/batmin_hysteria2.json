@@ -1,0 +1,46 @@
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "type": "local",
+        "tag": "dns-local"
+      }
+    ],
+    "final": "dns-local"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": [
+        "172.19.0.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "auto_route": true,
+      "strict_route": true,
+      "stack": "mixed"
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "batmin-hy2",
+      "server": "94.141.98.124",
+      "server_port": 443,
+      "password": "vpn2026:Vb6bvYmCBwH5VoVH",
+      "tls": {
+        "enabled": true,
+        "server_name": "94.141.98.124",
+        "insecure": true
+      }
+    }
+  ],
+  "route": {
+    "final": "batmin-hy2",
+    "auto_detect_interface": true
+  }
+}

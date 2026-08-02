@@ -1,0 +1,32 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+android {
+    namespace "pro.batmin.connect"
+    compileSdk flutter.compileSdkVersion
+    ndkVersion flutter.ndkVersion
+    defaultConfig {
+        applicationId "pro.batmin.connect"
+        minSdk 23
+        targetSdk flutter.targetSdkVersion
+        versionCode flutter.versionCode
+        versionName flutter.versionName
+    }
+    buildTypes { release { signingConfig signingConfigs.debug } }
+}
+flutter { source "../.." }
+
+
+dependencies {
+    implementation "androidx.core:core-ktx:1.13.1"
+
+    // Native sing-box/libbox engine. The project still compiles without the
+    // binary so UI/bridge work can be tested independently. Once present, the
+    // AAR is packaged automatically.
+    def libboxAar = file("libs/libbox.aar")
+    if (libboxAar.exists()) {
+        implementation files(libboxAar)
+    }
+}

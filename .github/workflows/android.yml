@@ -1,0 +1,78 @@
+name: Batmin Connect Android
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: true
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter diagnostics
+        run: flutter doctor -v
+
+      - name: Build native libbox engine
+        run: ./scripts/build_libbox_android.sh
+
+      - name: Inspect native API
+        run: ./scripts/inspect_libbox_aar.sh | tee libbox-api-report.txt
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Static analysis
+        run: flutter analyze
+
+      - name: Unit tests
+        run: flutter test
+
+      - name: Build debug APK
+        run: flutter build apk --debug --target-platform android-arm64
+
+      - name: Verify release inputs
+        run: ./scripts/verify_release.sh
+
+      - name: Package test release
+        run: ./scripts/package_android_release.sh debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: batmin-connect-debug-arm64
+          path: |
+            build/app/outputs/flutter-apk/app-debug.apk
+            dist/*.zip
+            dist/*.sha256
+            libbox-api-report.txt
+          if-no-files-found: error
+          retention-days: 14
