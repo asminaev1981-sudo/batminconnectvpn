@@ -73,20 +73,6 @@ jobs:
           gomobile init
           gomobile version || true
 
-      - name: Prepare Go Mobile
-        shell: bash
-        run: |
-          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
-          export PATH="$(go env GOPATH)/bin:$PATH"
-
-          go get -tool golang.org/x/mobile/cmd/gobind
-          go mod tidy
-
-          gomobile init
-
-          go version
-          gomobile version || true
-
       - name: Build native libbox engine
         run: ./scripts/build_libbox_android.sh
 
