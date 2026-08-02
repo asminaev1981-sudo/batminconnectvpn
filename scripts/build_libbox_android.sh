@@ -17,7 +17,21 @@ if [[ ! -d "$SING_BOX_DIR/.git" ]]; then
 fi
 
 git -C "$SING_BOX_DIR" fetch --tags --force
+
 git -C "$SING_BOX_DIR" checkout --detach "$SING_BOX_REF"
+
+export PATH="$(go env GOPATH)/bin:$PATH"
+
+(
+cd "$SING_BOX_DIR"
+
+go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+
+go get -tool golang.org/x/mobile/cmd/gobind
+go mod tidy
+
+gomobile init
+)
 
 (
   cd "$SING_BOX_DIR"
