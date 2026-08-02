@@ -36,6 +36,9 @@ p.write_text(t)
 print("Removed obsolete gomobile flags")
 PATCH
 
+go get -tool golang.org/x/mobile/cmd/gobind
+go mod tidy
+
 go run ./cmd/internal/build_libbox -target android
 )
 
