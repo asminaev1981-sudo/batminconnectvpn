@@ -48,6 +48,25 @@ jobs:
           export PATH="$(go env GOPATH)/bin:$PATH"
           gomobile init
 
+      - name: Debug Go tools
+        run: |
+          echo "=== GO ==="
+          which go
+          go version
+
+          echo "=== GOMOBILE ==="
+          which gomobile || true
+          gomobile version || true
+
+          echo "=== GOMOBILE BIND HELP ==="
+          gomobile help bind || true
+
+          echo "=== GOPATH ==="
+          go env GOPATH
+
+          echo "=== PATH ==="
+          echo "$PATH"
+
       - name: Build native libbox engine
         run: ./scripts/build_libbox_android.sh
 
