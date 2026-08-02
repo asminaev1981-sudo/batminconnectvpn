@@ -21,7 +21,16 @@ git -C "$SING_BOX_DIR" checkout --detach "$SING_BOX_REF"
 
 (
   cd "$SING_BOX_DIR"
-  go run ./cmd/internal/build_libbox -target android
+  python3 <<'PATCH'
+from pathlib import Path
+p=Path("vendor/upstream/sing-box/cmd/internal/build_libbox/main.go")
+t=p.read_text()
+t=t.replace('"-libname=box",','')
+p.write_text(t)
+print("Removed obsolete -libname flag")
+PATCH
+
+go run ./cmd/internal/build_libbox -target android
 )
 
 CANDIDATE="$(find "$SING_BOX_DIR" -type f -name 'libbox.aar' -print -quit)"
