@@ -23,11 +23,16 @@ git -C "$SING_BOX_DIR" checkout --detach "$SING_BOX_REF"
   cd "$SING_BOX_DIR"
   python3 <<'PATCH'
 from pathlib import Path
-p=Path("cmd/internal/build_libbox/main.go")
-t=p.read_text()
-t=t.replace('"-libname=box",','')
+
+p = Path("cmd/internal/build_libbox/main.go")
+t = p.read_text()
+
+t = t.replace("-libname=box,", "")
+t = t.replace("-buildvcs=false", "")
+
 p.write_text(t)
-print("Removed obsolete -libname flag")
+
+print("Removed obsolete gomobile flags")
 PATCH
 
 go run ./cmd/internal/build_libbox -target android
