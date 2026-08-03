@@ -22,7 +22,7 @@ class BatminConnectApp extends StatelessWidget {
     return MaterialApp(
       title: 'Batmin Connect',
       debugShowCheckedModeBanner: false,
-      theme: BatminTheme.dark,
+      theme: BatminTheme.dark(),
       home: const SplashPage(),
     );
   }
