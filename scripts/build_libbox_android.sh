@@ -39,6 +39,17 @@ git -C "$SING_BOX_DIR" checkout --detach "$SING_BOX_REF"
 
 cd "$SING_BOX_DIR"
 
+log "Disable Cronet-dependent Naive outbound"
+python3 - <<'EOF'
+from pathlib import Path
+p=Path("cmd/internal/build_libbox/main.go")
+t=p.read_text()
+t=t.replace('"with_naive_outbound", ', '')
+t=t.replace(', "with_naive_outbound"', '')
+p.write_text(t)
+EOF
+
+
 log "Building Android libbox AAR"
 go run ./cmd/internal/build_libbox -target android
 
