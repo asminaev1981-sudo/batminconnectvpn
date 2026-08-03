@@ -1,73 +1,79 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VENDOR_DIR="${BATMIN_VENDOR_DIR:-$ROOT/vendor/upstream}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENDOR_DIR="$ROOT/vendor/upstream"
 SING_BOX_DIR="$VENDOR_DIR/sing-box"
-# Stable pin used by this integration package. Override only deliberately.
+
+SING_BOX_REPOSITORY="${SING_BOX_REPOSITORY:-https://github.com/SagerNet/sing-box.git}"
 SING_BOX_REF="${SING_BOX_REF:-v1.13.12}"
-OUTPUT="$ROOT/android/app/libs/libbox.aar"
 
-command -v git >/dev/null || { echo "git is required" >&2; exit 1; }
-command -v go >/dev/null || { echo "Go is required" >&2; exit 1; }
+LIBS_DIR="$ROOT/android/app/libs"
+OUTPUT="$LIBS_DIR/libbox.aar"
+VERSION_FILE="$LIBS_DIR/libbox.version"
 
-mkdir -p "$VENDOR_DIR" "$(dirname "$OUTPUT")"
-if [[ ! -d "$SING_BOX_DIR/.git" ]]; then
-  git clone https://github.com/SagerNet/sing-box.git "$SING_BOX_DIR"
-fi
+log() {
+  printf '[libbox-build] %s\n' "$*"
+}
 
-git -C "$SING_BOX_DIR" fetch --tags --force
+fatal() {
+  printf '[libbox-build] ERROR: %s\n' "$*" >&2
+  exit 1
+}
 
+command -v git >/dev/null 2>&1 || fatal "git is required"
+command -v go >/dev/null 2>&1 || fatal "Go is required"
+command -v gomobile >/dev/null 2>&1 || fatal "gomobile is required"
+command -v python3 >/dev/null 2>&1 || fatal "python3 is required"
+
+log "Go: $(go version)"
+log "gomobile: $(command -v gomobile)"
+log "sing-box ref: $SING_BOX_REF"
+
+mkdir -p "$VENDOR_DIR" "$LIBS_DIR"
+rm -rf "$SING_BOX_DIR"
+
+log "Cloning sing-box"
+git clone --filter=blob:none "$SING_BOX_REPOSITORY" "$SING_BOX_DIR"
 git -C "$SING_BOX_DIR" checkout --detach "$SING_BOX_REF"
 
-export PATH="$(go env GOPATH)/bin:$PATH"
-
-(
 cd "$SING_BOX_DIR"
 
-go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
-
-go get -tool golang.org/x/mobile/cmd/gobind
-go mod tidy
-
-gomobile init
-)
-
-(
-  cd "$SING_BOX_DIR"
-  python3 <<'PATCH'
-from pathlib import Path
-
-p = Path("cmd/internal/build_libbox/main.go")
-t = p.read_text()
-
-t = t.replace('"-libname=box",', "")
-t = t.replace("-libname=box", "")
-t = t.replace("-buildvcs=false", "")
-
-p.write_text(t)
-
-print("Removed obsolete gomobile flags")
-PATCH
-
-go get -tool golang.org/x/mobile/cmd/gobind
-go mod tidy
-
+log "Building Android libbox AAR"
 go run ./cmd/internal/build_libbox -target android
-)
 
-CANDIDATE="$(find "$SING_BOX_DIR" -type f -name 'libbox.aar' -print -quit)"
+CANDIDATE="$(
+  find "$SING_BOX_DIR" \
+    -type f \
+    \( -name 'libbox.aar' -o -name 'box.aar' \) \
+    -print \
+    | head -n 1
+)"
+
 if [[ -z "$CANDIDATE" ]]; then
-  echo "libbox.aar was not produced" >&2
-  exit 1
+  log "Available AAR files:"
+  find "$SING_BOX_DIR" -type f -name '*.aar' -print || true
+  fatal "libbox AAR was not produced"
 fi
-cp "$CANDIDATE" "$OUTPUT"
-sha256sum "$OUTPUT" | tee "$OUTPUT.sha256"
-cat > "$ROOT/android/app/libs/libbox.version" <<META
-source=https://github.com/SagerNet/sing-box
+
+cp -f "$CANDIDATE" "$OUTPUT"
+
+[[ -s "$OUTPUT" ]] || fatal "Generated libbox.aar is empty"
+
+SHA256="$(sha256sum "$OUTPUT" | awk '{print $1}')"
+SIZE="$(stat -c '%s' "$OUTPUT")"
+COMMIT="$(git -C "$SING_BOX_DIR" rev-parse HEAD)"
+
+cat > "$VERSION_FILE" <<META
+repository=$SING_BOX_REPOSITORY
 ref=$SING_BOX_REF
-commit=$(git -C "$SING_BOX_DIR" rev-parse HEAD)
-sha256=$(sha256sum "$OUTPUT" | awk '{print $1}')
+commit=$COMMIT
+sha256=$SHA256
+size=$SIZE
 META
 
-echo "Created: $OUTPUT"
+printf '%s  %s\n' "$SHA256" "$(basename "$OUTPUT")" > "$OUTPUT.sha256"
+
+log "Created: $OUTPUT"
+log "Size: $SIZE bytes"
+log "SHA-256: $SHA256"

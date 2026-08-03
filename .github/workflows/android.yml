@@ -41,31 +41,13 @@ jobs:
       - name: Flutter diagnostics
         run: flutter doctor -v
 
-      - name: Install gomobile
+      - name: Install compatible SagerNet gomobile
         run: |
-          go install golang.org/x/mobile/cmd/gomobile@latest
-          go install golang.org/x/mobile/cmd/gobind@latest
-          export PATH="$(go env GOPATH)/bin:$PATH"
-          gomobile init
-
-      - name: Debug Go tools
-        run: |
-          echo "=== GO ==="
-          which go
-          go version
-
-          echo "=== GOMOBILE ==="
-          which gomobile || true
-          gomobile version || true
-
-          echo "=== GOMOBILE BIND HELP ==="
-          gomobile help bind || true
-
-          echo "=== GOPATH ==="
-          go env GOPATH
-
-          echo "=== PATH ==="
-          echo "$PATH"
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
+          go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          "$(go env GOPATH)/bin/gomobile" init
+          "$(go env GOPATH)/bin/gomobile" help bind | head -40
 
       - name: Pin gomobile
         run: |
