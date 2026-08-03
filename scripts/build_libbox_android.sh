@@ -19,34 +19,6 @@ fi
 git -C "$SING_BOX_DIR" fetch --tags --force
 
 git -C "$SING_BOX_DIR" checkout --detach "$SING_BOX_REF"
-(
-cd "$SING_BOX_DIR"
-
-python3 <<'PATCH'
-from pathlib import Path
-
-p = Path("cmd/internal/build_libbox/main.go")
-t = p.read_text()
-
-for s in [
-    '-buildvcs=false',
-    '-libname=box',
-]:
-    t = t.replace(s, '')
-
-lines = []
-for line in t.splitlines():
-    if 'sharedFlags = append(sharedFlags, "-ldflags"' in line:
-        continue
-    if 'args = append(args, sharedFlags...)' in line:
-        continue
-    lines.append(line)
-
-p.write_text("\n".join(lines) + "\n")
-print("sing-box patched")
-PATCH
-
-)
 
 export PATH="$(go env GOPATH)/bin:$PATH"
 
@@ -63,6 +35,26 @@ gomobile init
 
 (
   cd "$SING_BOX_DIR"
+  python3 <<'PATCH'
+from pathlib import Path
+
+p = Path("cmd/internal/build_libbox/main.go")
+t = p.read_text()
+
+t = t.replace('"-libname=box",', "")
+t = t.replace("-libname=box", "")
+t = t.replace("-buildvcs=false", "")
+
+p.write_text(t)
+
+print("Removed obsolete gomobile flags")
+PATCH
+
+go get -tool golang.org/x/mobile/cmd/gobind
+go mod tidy
+
+go run ./cmd/internal/build_libbox -target android
+)
 
 CANDIDATE="$(find "$SING_BOX_DIR" -type f -name 'libbox.aar' -print -quit)"
 if [[ -z "$CANDIDATE" ]]; then
