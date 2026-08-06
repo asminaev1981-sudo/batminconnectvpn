@@ -65,9 +65,9 @@ class HomePage extends StatelessWidget {
                   const SizedBox(height: 18),
                   Row(
                     children: [
-                      Expanded(child: _Metric(label: 'PING', value: state.pingMs == 0 ? '—' : '${state.pingMs} ms')),
+                      const Expanded(child: _Metric(label: 'PING', value: state.pingMs == 0 ? '—' : '${state.pingMs} ms')),
                       SizedBox(width: 10),
-                      Expanded(child: _Metric(label: '↓', value: '${state.downloadMbps.toStringAsFixed(1)} Mbps')),
+                      const Expanded(child: _Metric(label: '↓', value: '${state.downloadMbps.toStringAsFixed(1)} Mbps')),
                       SizedBox(width: 10),
                       Expanded(child: _Metric(label: '↑', value: '${state.uploadMbps.toStringAsFixed(1)} Mbps')),
                     ],
@@ -76,9 +76,9 @@ class HomePage extends StatelessWidget {
                   const Row(
                     children: [
                       Expanded(child: _Action(icon: Icons.health_and_safety_outlined, label: 'Доктор', page: DiagnosticsPage())),
-                      const SizedBox(width: 10),
+                        const SizedBox(width: 10),
                       Expanded(child: _Action(icon: Icons.dns_outlined, label: 'Серверы', page: ServersPage())),
-                      const SizedBox(width: 10),
+                        const SizedBox(width: 10),
                       Expanded(child: _Action(icon: Icons.settings_outlined, label: 'Настройки', page: SettingsPage())),
                     ],
                   ),
