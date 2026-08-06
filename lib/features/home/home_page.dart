@@ -63,7 +63,7 @@ class HomePage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 18),
-                  Row(
+                  const Row(
                     children: [
                       Expanded(child: _Metric(label: 'PING', value: state.pingMs == 0 ? '—' : '${state.pingMs} ms')),
                       const SizedBox(width: 10),
@@ -73,13 +73,13 @@ class HomePage extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 18),
-                  Row(
+                  const Row(
                     children: [
-                      Expanded(child: _Action(icon: Icons.health_and_safety_outlined, label: 'Доктор', page: const DiagnosticsPage())),
+                      const Expanded(child: _Action(icon: Icons.health_and_safety_outlined, label: 'Доктор', page: DiagnosticsPage())),
                       const SizedBox(width: 10),
-                      Expanded(child: _Action(icon: Icons.dns_outlined, label: 'Серверы', page: const ServersPage())),
+                      const Expanded(child: _Action(icon: Icons.dns_outlined, label: 'Серверы', page: ServersPage())),
                       const SizedBox(width: 10),
-                      Expanded(child: _Action(icon: Icons.settings_outlined, label: 'Настройки', page: const SettingsPage())),
+                      const Expanded(child: _Action(icon: Icons.settings_outlined, label: 'Настройки', page: SettingsPage())),
                     ],
                   ),
                   if (state.message.isNotEmpty) ...[
@@ -87,7 +87,7 @@ class HomePage extends StatelessWidget {
                     Card(
                       child: Padding(
                         padding: const EdgeInsets.all(16),
-                        child: Row(
+                        child: const Row(
                           children: [
                             const Icon(Icons.info_outline),
                             const SizedBox(width: 12),
@@ -128,7 +128,7 @@ class _ServerCard extends StatelessWidget {
   Widget build(BuildContext context) => Card(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Row(
+          child: const Row(
             children: [
               Container(
                 width: 44,
