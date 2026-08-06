@@ -65,9 +65,9 @@ class HomePage extends StatelessWidget {
                   const SizedBox(height: 18),
                   Row(
                     children: [
-                      const Expanded(child: _Metric(label: 'PING', value: state.pingMs == 0 ? '—' : '${state.pingMs} ms')),
+                      Expanded(child: _Metric(label: 'PING', value: state.pingMs == 0 ? '—' : '${state.pingMs} ms')),
                       SizedBox(width: 10),
-                      const Expanded(child: _Metric(label: '↓', value: '${state.downloadMbps.toStringAsFixed(1)} Mbps')),
+                      Expanded(child: _Metric(label: '↓', value: '${state.downloadMbps.toStringAsFixed(1)} Mbps')),
                       SizedBox(width: 10),
                       Expanded(child: _Metric(label: '↑', value: '${state.uploadMbps.toStringAsFixed(1)} Mbps')),
                     ],
