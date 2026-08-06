@@ -75,11 +75,11 @@ class HomePage extends StatelessWidget {
                   const SizedBox(height: 18),
                   const Row(
                     children: [
-                      const Expanded(child: _Action(icon: Icons.health_and_safety_outlined, label: 'Доктор', page: DiagnosticsPage())),
+                      Expanded(child: _Action(icon: Icons.health_and_safety_outlined, label: 'Доктор', page: DiagnosticsPage())),
                       const SizedBox(width: 10),
-                      const Expanded(child: _Action(icon: Icons.dns_outlined, label: 'Серверы', page: ServersPage())),
+                      Expanded(child: _Action(icon: Icons.dns_outlined, label: 'Серверы', page: ServersPage())),
                       const SizedBox(width: 10),
-                      const Expanded(child: _Action(icon: Icons.settings_outlined, label: 'Настройки', page: SettingsPage())),
+                      Expanded(child: _Action(icon: Icons.settings_outlined, label: 'Настройки', page: SettingsPage())),
                     ],
                   ),
                   if (state.message.isNotEmpty) ...[
@@ -87,7 +87,7 @@ class HomePage extends StatelessWidget {
                     Card(
                       child: Padding(
                         padding: const EdgeInsets.all(16),
-                        child: const Row(
+                        child: Row(
                           children: [
                             const Icon(Icons.info_outline),
                             const SizedBox(width: 12),
@@ -134,7 +134,7 @@ class _ServerCard extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(color: const Color(0xFF171D31), borderRadius: BorderRadius.circular(14)),
-                child: const Icon(Icons.public),
+                child: Icon(Icons.public),
               ),
               const SizedBox(width: 14),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.w700)), const SizedBox(height: 3), Text(address, style: const TextStyle(color: Color(0xFF7E8AA6)))])),
