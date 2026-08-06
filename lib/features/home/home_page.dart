@@ -66,9 +66,9 @@ class HomePage extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(child: _Metric(label: 'PING', value: state.pingMs == 0 ? '—' : '${state.pingMs} ms')),
-                      const SizedBox(width: 10),
+                      SizedBox(width: 10),
                       Expanded(child: _Metric(label: '↓', value: '${state.downloadMbps.toStringAsFixed(1)} Mbps')),
-                      const SizedBox(width: 10),
+                      SizedBox(width: 10),
                       Expanded(child: _Metric(label: '↑', value: '${state.uploadMbps.toStringAsFixed(1)} Mbps')),
                     ],
                   ),
@@ -134,7 +134,7 @@ class _ServerCard extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(color: const Color(0xFF171D31), borderRadius: BorderRadius.circular(14)),
-                child: Icon(Icons.public),
+                child: const Icon(Icons.public),
               ),
               const SizedBox(width: 14),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(name, style: const TextStyle(fontWeight: FontWeight.w700)), const SizedBox(height: 3), Text(address, style: const TextStyle(color: Color(0xFF7E8AA6)))])),
