@@ -63,7 +63,7 @@ class HomePage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 18),
-                  const Row(
+                  Row(
                     children: [
                       Expanded(child: _Metric(label: 'PING', value: state.pingMs == 0 ? '—' : '${state.pingMs} ms')),
                       const SizedBox(width: 10),
@@ -128,7 +128,7 @@ class _ServerCard extends StatelessWidget {
   Widget build(BuildContext context) => Card(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: const Row(
+          child: Row(
             children: [
               Container(
                 width: 44,
