@@ -98,7 +98,7 @@ class LibboxPlatform(
     }
 
     override fun readWIFIState(): WIFIState {
-        return WIFIState()
+        return WIFIState("", "")
     }
 
     override fun sendNotification(notification: Notification) {
