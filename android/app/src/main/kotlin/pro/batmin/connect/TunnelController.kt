@@ -1,6 +1,12 @@
 package pro.batmin.connect
 
-import android.content.Context
+import io.nekohasekai.libbox.CommandServer
+import io.nekohasekai.libbox.CommandServerHandler
+import io.nekohasekai.libbox.Libbox
+import io.nekohasekai.libbox.OverrideOptions
+import io.nekohasekai.libbox.SetupOptions
+import io.nekohasekai.libbox.SystemProxyStatus
+
 import org.json.JSONObject
 
 /**
@@ -11,7 +17,11 @@ import org.json.JSONObject
  * android/app/libs, start() fails explicitly instead of reporting a false
  * connected state.
  */
-class TunnelController(private val context: Context) {
+class TunnelController(private val vpnService: BatminVpnService) {
+
+    private var commandServer: CommandServer? = null
+    private var libboxSetupDone = false
+
     data class StartResult(val success: Boolean, val message: String)
 
     val engineAvailable: Boolean
@@ -48,10 +58,85 @@ class TunnelController(private val context: Context) {
         // present. The next adapter binds Android's VpnService platform
         // callbacks to Libbox.newService(). We still fail closed until that
         // platform interface is installed: no false protected state.
-        return StartResult(false, "libbox совместим; требуется Android PlatformInterface адаптер")
+        try {
+            ensureLibboxSetup()
+
+            val platform = LibboxPlatform(vpnService)
+
+            val handler = object : CommandServerHandler {
+                override fun getSystemProxyStatus(): SystemProxyStatus? = null
+
+                override fun serviceReload() {
+                    VpnLog.add("libbox requested serviceReload")
+                }
+
+                override fun serviceStop() {
+                    VpnLog.add("libbox requested serviceStop")
+                }
+
+                override fun setSystemProxyEnabled(enabled: Boolean) {
+                    VpnLog.add("System proxy request: $enabled")
+                }
+
+                override fun writeDebugMessage(message: String) {
+                    VpnLog.add("libbox: $message")
+                }
+            }
+
+            val server = Libbox.newCommandServer(handler, platform)
+
+            server.start()
+
+            val overrideOptions = OverrideOptions().apply {
+                autoRedirect = false
+            }
+
+            server.startOrReloadService(profileJson, overrideOptions)
+
+            commandServer = server
+
+            VpnLog.add("libbox CommandServer started")
+            StartResult(true, "VPN-туннель запущен")
+        } catch (e: Exception) {
+            VpnLog.add("libbox start failed: ${e.message}")
+            commandServer?.runCatching { close() }
+            commandServer = null
+            StartResult(false, "Ошибка запуска VPN: ${e.message}")
+        }
     }
 
     fun stop() {
+        commandServer?.let { server ->
+            runCatching { server.closeService() }
+                .onFailure { VpnLog.add("closeService: ${it.message}") }
+
+            runCatching { server.close() }
+                .onFailure { VpnLog.add("CommandServer.close: ${it.message}") }
+        }
+
+        commandServer = null
+
         VpnLog.add("TunnelController.stop()")
     }
+
+    private fun ensureLibboxSetup() {
+        if (libboxSetupDone) return
+
+        val options = SetupOptions().apply {
+            basePath = vpnService.filesDir.absolutePath
+            workingPath = vpnService.filesDir.absolutePath
+            tempPath = vpnService.cacheDir.absolutePath
+            fixAndroidStack = true
+            commandServerListenPort = 0
+            commandServerSecret = ""
+            logMaxLines = 500
+            debug = true
+        }
+
+        Libbox.setup(options)
+        libboxSetupDone = true
+
+        VpnLog.add("libbox setup complete: ${Libbox.version()}")
+    }
+
 }
