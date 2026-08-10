@@ -31,3 +31,4 @@ inspect() {
 }
 
 inspect io.nekohasekai.libbox.PlatformInterface
+inspect io.nekohasekai.libbox.Libbox
