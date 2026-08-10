@@ -19,29 +19,40 @@ unzip -q "$AAR" -d "$TMP"
     exit 1
 }
 
+CLASSES="$TMP/classes.jar"
+
 echo "===== LIBBOX CLASSES ====="
-jar tf "$TMP/classes.jar" \
-    | grep -E '(^|/)libbox/|Libbox|PlatformInterface|BoxService|TunOptions|CommandClientOptions|SetupOptions' \
-    | sort
+jar tf "$CLASSES" | grep '^io/nekohasekai/libbox/.*\.class$' | sort
 
-inspect_class() {
-    local class="$1"
-
+inspect() {
     echo
-    echo "===== $class ====="
-
-    if javap -classpath "$TMP/classes.jar" -public "$class"; then
-        true
-    else
-        echo "CLASS NOT FOUND: $class"
-    fi
+    echo "===== $1 ====="
+    javap -classpath "$CLASSES" -public "$1" || true
 }
 
-inspect_class io.nekohasekai.libbox.Libbox
-inspect_class io.nekohasekai.libbox.PlatformInterface
-inspect_class io.nekohasekai.libbox.TunOptions
-inspect_class io.nekohasekai.libbox.CommandClientOptions
-inspect_class io.nekohasekai.libbox.SetupOptions
+inspect io.nekohasekai.libbox.Libbox
+inspect io.nekohasekai.libbox.PlatformInterface
+inspect io.nekohasekai.libbox.TunOptions
+inspect io.nekohasekai.libbox.SetupOptions
+
+inspect io.nekohasekai.libbox.CommandServer
+inspect io.nekohasekai.libbox.CommandServerHandler
+inspect io.nekohasekai.libbox.CommandClient
+inspect io.nekohasekai.libbox.CommandClientHandler
+inspect io.nekohasekai.libbox.CommandClientOptions
+
+inspect io.nekohasekai.libbox.NetworkInterface
+inspect io.nekohasekai.libbox.NetworkInterfaceIterator
+inspect io.nekohasekai.libbox.RoutePrefix
+inspect io.nekohasekai.libbox.RoutePrefixIterator
+inspect io.nekohasekai.libbox.StringBox
+inspect io.nekohasekai.libbox.StringIterator
+inspect io.nekohasekai.libbox.InterfaceUpdateListener
+inspect io.nekohasekai.libbox.ConnectionOwner
+inspect io.nekohasekai.libbox.LocalDNSTransport
+inspect io.nekohasekai.libbox.Notification
+inspect io.nekohasekai.libbox.WIFIState
+inspect io.nekohasekai.libbox.AndroidVPNType
 
 echo
 echo "===== INSPECTION COMPLETE ====="
