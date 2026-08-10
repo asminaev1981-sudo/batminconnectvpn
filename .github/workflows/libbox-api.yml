@@ -1,0 +1,86 @@
+name: Inspect libbox API
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Locate libbox AAR
+        id: locate
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          AAR="android/app/libs/libbox.aar"
+
+          if [ ! -f "$AAR" ]; then
+            echo "libbox.aar not found at $AAR"
+            echo "Searching repository..."
+            find . -type f -name 'libbox.aar' -print
+            exit 1
+          fi
+
+          echo "aar=$AAR" >> "$GITHUB_OUTPUT"
+          ls -lh "$AAR"
+
+      - name: Extract classes.jar
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          mkdir -p /tmp/libbox-aar
+          cd /tmp/libbox-aar
+
+          unzip -o "$GITHUB_WORKSPACE/${{ steps.locate.outputs.aar }}"
+
+          test -f classes.jar
+          jar tf classes.jar | grep 'io/nekohasekai/libbox/' | sort | tee classes.txt
+
+      - name: Inspect exact libbox API
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          cd /tmp/libbox-aar
+
+          {
+            echo "===== LIBBOX ====="
+            javap -classpath classes.jar -public io.nekohasekai.libbox.Libbox
+
+            echo
+            echo "===== PLATFORM INTERFACE ====="
+            javap -classpath classes.jar -public io.nekohasekai.libbox.PlatformInterface
+
+            echo
+            echo "===== TUN OPTIONS ====="
+            javap -classpath classes.jar -public io.nekohasekai.libbox.TunOptions
+
+            echo
+            echo "===== COMMAND CLIENT OPTIONS ====="
+            javap -classpath classes.jar -public io.nekohasekai.libbox.CommandClientOptions
+
+            echo
+            echo "===== SETUP OPTIONS ====="
+            javap -classpath classes.jar -public io.nekohasekai.libbox.SetupOptions
+          } | tee libbox-api-report.txt
+
+      - name: Upload API report
+        uses: actions/upload-artifact@v4
+        with:
+          name: libbox-api-report
+          path: |
+            /tmp/libbox-aar/libbox-api-report.txt
+            /tmp/libbox-aar/classes.txt
+          if-no-files-found: error
