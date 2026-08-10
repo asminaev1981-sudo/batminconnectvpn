@@ -58,7 +58,7 @@ class TunnelController(private val vpnService: BatminVpnService) {
         // present. The next adapter binds Android's VpnService platform
         // callbacks to Libbox.newService(). We still fail closed until that
         // platform interface is installed: no false protected state.
-        try {
+        return try {
             ensureLibboxSetup()
 
             val platform = LibboxPlatform(vpnService)
