@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../models/connection_state.dart';
+import '../models/vpn_protocol.dart';
 import 'android_vpn_bridge.dart';
 
 class ConnectionController extends ChangeNotifier {
@@ -11,6 +12,23 @@ class ConnectionController extends ChangeNotifier {
       : _bridge = bridge ?? AndroidVpnBridge();
 
   final AndroidVpnBridge _bridge;
+
+  VpnProtocol _selectedProtocol = VpnProtocol.hysteria2;
+
+  VpnProtocol get selectedProtocol => _selectedProtocol;
+
+  void selectProtocol(VpnProtocol protocol) {
+    if (_operationInProgress) {
+      return;
+    }
+    if (_snapshot.status != TunnelStatus.disconnected &&
+        _snapshot.status != TunnelStatus.error) {
+      return;
+    }
+    _selectedProtocol = protocol;
+    notifyListeners();
+  }
+
   Timer? _statusTimer;
   bool _operationInProgress = false;
 
@@ -51,17 +69,30 @@ class ConnectionController extends ChangeNotifier {
         return;
       }
 
-      final profileJson = await rootBundle.loadString(
-        'assets/config/batmin_hysteria2.json',
-      );
-      _setSnapshot(const ConnectionSnapshot(
-        status: TunnelStatus.connecting,
-        message: 'Запускаю VPN-службу и передаю профиль Hysteria2…',
-      ));
-
-      await _bridge.start(profileJson: profileJson);
-      _startStatusPolling();
-      await _refreshNativeStatus();
+      switch (_selectedProtocol) {
+        case VpnProtocol.hysteria2:
+          final profileJson = await rootBundle
+              .loadString('assets/config/batmin_hysteria2.json');
+          _setSnapshot(const ConnectionSnapshot(
+              status: TunnelStatus.connecting, message: 'Запускаю Hysteria2…'));
+          await _bridge.start(profileJson: profileJson);
+          _startStatusPolling();
+          await _refreshNativeStatus();
+          break;
+        case VpnProtocol.amneziaWg:
+          final configText = await rootBundle
+              .loadString('assets/config/batmin_amneziawg.conf');
+          _setSnapshot(const ConnectionSnapshot(
+              status: TunnelStatus.connecting, message: 'Запускаю AmneziaWG…'));
+          await _bridge.startAmneziaWg(configText: configText);
+          _statusTimer?.cancel();
+          _setSnapshot(const ConnectionSnapshot(
+              status: TunnelStatus.connected, message: 'AmneziaWG подключён.'));
+          break;
+        case VpnProtocol.auto:
+          _setError('AUTO будет включён после проверки обоих VPN-движков.');
+          return;
+      }
     } on PlatformException catch (error) {
       _setError(error.message ?? error.code);
     } catch (error) {
@@ -78,7 +109,18 @@ class ConnectionController extends ChangeNotifier {
       message: 'Останавливаю VPN-службу…',
     ));
     try {
-      await _bridge.stop();
+      switch (_selectedProtocol) {
+        case VpnProtocol.hysteria2:
+          await _bridge.stop();
+          break;
+        case VpnProtocol.amneziaWg:
+          await _bridge.stopAmneziaWg();
+          break;
+        case VpnProtocol.auto:
+          await _bridge.stop();
+          await _bridge.stopAmneziaWg();
+          break;
+      }
       _statusTimer?.cancel();
       _setSnapshot(const ConnectionSnapshot(
         status: TunnelStatus.disconnected,
