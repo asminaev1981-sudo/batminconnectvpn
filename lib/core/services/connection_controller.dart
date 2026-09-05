@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -6,16 +7,25 @@ import 'package:flutter/services.dart';
 import '../models/connection_state.dart';
 import '../models/vpn_protocol.dart';
 import 'android_vpn_bridge.dart';
+import 'vpn_profile_store.dart';
 
 class ConnectionController extends ChangeNotifier {
-  ConnectionController({AndroidVpnBridge? bridge})
-      : _bridge = bridge ?? AndroidVpnBridge();
+  ConnectionController({AndroidVpnBridge? bridge, VpnProfileStore? profileStore})
+      : _bridge = bridge ?? AndroidVpnBridge(),
+        _profileStore = profileStore ?? VpnProfileStore();
 
   final AndroidVpnBridge _bridge;
+  final VpnProfileStore _profileStore;
+  static const hysteriaPorts = <int>[443, 2053, 2096, 8443];
+  static const amneziaWg31Port = 5182;
 
   VpnProtocol _selectedProtocol = VpnProtocol.hysteria2;
 
   VpnProtocol get selectedProtocol => _selectedProtocol;
+  VpnProtocol? _activeProtocol;
+  int? _activePort;
+  VpnProtocol? get activeProtocol => _activeProtocol;
+  int? get activePort => _activePort;
 
   void selectProtocol(VpnProtocol protocol) {
     if (_operationInProgress) {
@@ -71,27 +81,18 @@ class ConnectionController extends ChangeNotifier {
 
       switch (_selectedProtocol) {
         case VpnProtocol.hysteria2:
-          final profileJson = await rootBundle
-              .loadString('assets/config/batmin_hysteria2.json');
-          _setSnapshot(const ConnectionSnapshot(
-              status: TunnelStatus.connecting, message: 'Запускаю Hysteria2…'));
-          await _bridge.start(profileJson: profileJson);
-          _startStatusPolling();
-          await _refreshNativeStatus();
+          await _connectHysteriaWithFallback();
           break;
         case VpnProtocol.amneziaWg:
-          final configText = await rootBundle
-              .loadString('assets/config/batmin_amneziawg.conf');
-          _setSnapshot(const ConnectionSnapshot(
-              status: TunnelStatus.connecting, message: 'Запускаю AmneziaWG…'));
-          await _bridge.startAmneziaWg(configText: configText);
-          _statusTimer?.cancel();
-          _setSnapshot(const ConnectionSnapshot(
-              status: TunnelStatus.connected, message: 'AmneziaWG подключён.'));
+          await _connectAmneziaWg();
           break;
         case VpnProtocol.auto:
-          _setError('AUTO будет включён после проверки обоих VPN-движков.');
-          return;
+          try {
+            await _connectHysteriaWithFallback();
+          } catch (_) {
+            await _connectAmneziaWg();
+          }
+          break;
       }
     } on PlatformException catch (error) {
       _setError(error.message ?? error.code);
@@ -109,7 +110,7 @@ class ConnectionController extends ChangeNotifier {
       message: 'Останавливаю VPN-службу…',
     ));
     try {
-      switch (_selectedProtocol) {
+      switch (_activeProtocol ?? _selectedProtocol) {
         case VpnProtocol.hysteria2:
           await _bridge.stop();
           break;
@@ -122,6 +123,8 @@ class ConnectionController extends ChangeNotifier {
           break;
       }
       _statusTimer?.cancel();
+      _activeProtocol = null;
+      _activePort = null;
       _setSnapshot(const ConnectionSnapshot(
         status: TunnelStatus.disconnected,
         message: 'VPN отключён.',
@@ -139,9 +142,97 @@ class ConnectionController extends ChangeNotifier {
     _statusTimer?.cancel();
     _statusTimer = Timer.periodic(
       const Duration(seconds: 1),
-      (_) => _refreshNativeStatus(),
+      (_) => _refreshActiveStatus(),
     );
   }
+
+  Future<void> _connectHysteriaWithFallback() async {
+    final source = await rootBundle.loadString('assets/config/batmin_hysteria2.json');
+    Object? lastError;
+    for (final port in hysteriaPorts) {
+      try {
+        final profile = jsonDecode(source) as Map<String, dynamic>;
+        final outbounds = profile['outbounds'] as List<dynamic>;
+        final outbound = outbounds.cast<Map<String, dynamic>>().firstWhere(
+              (value) => value['type'] == 'hysteria2',
+            );
+        outbound['server_port'] = port;
+        _setSnapshot(ConnectionSnapshot(
+          status: TunnelStatus.connecting,
+          message: 'Проверяю Hysteria2, UDP $port…',
+        ));
+        await _bridge.start(profileJson: jsonEncode(profile));
+        await _waitForHysteriaReady();
+        _activeProtocol = VpnProtocol.hysteria2;
+        _activePort = port;
+        _startStatusPolling();
+        _setSnapshot(ConnectionSnapshot(
+          status: TunnelStatus.connected,
+          message: 'Hysteria2 подключён через UDP $port.',
+        ));
+        return;
+      } catch (error) {
+        lastError = error;
+        await _bridge.stop();
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+      }
+    }
+    throw StateError('Все порты Hysteria2 недоступны: $lastError');
+  }
+
+  Future<void> _waitForHysteriaReady() async {
+    for (var attempt = 0; attempt < 12; attempt++) {
+      final native = await _bridge.status();
+      if (native.state == NativeVpnState.ready && native.engineAvailable) return;
+      if (native.state == NativeVpnState.error ||
+          native.state == NativeVpnState.stopped) {
+        throw StateError(native.message);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    throw TimeoutException('Hysteria2 не перешёл в рабочее состояние');
+  }
+
+  Future<void> _connectAmneziaWg() async {
+    final configText = await _profileStore.readAmneziaWgProfile();
+    if (configText == null || configText.isEmpty) {
+      throw StateError(
+        'Профиль AmneziaWG 3.1 не установлен. Добавьте его в настройках.',
+      );
+    }
+    _setSnapshot(const ConnectionSnapshot(
+      status: TunnelStatus.connecting,
+      message: 'Запускаю AmneziaWG 3.1…',
+    ));
+    await _bridge.startAmneziaWg(configText: configText);
+    final state = await _bridge.amneziaWgStatus();
+    if (state != 'up') throw StateError('AmneziaWG не перешёл в состояние UP');
+    _activeProtocol = VpnProtocol.amneziaWg;
+    _activePort = amneziaWg31Port;
+    _startStatusPolling();
+    _setSnapshot(const ConnectionSnapshot(
+      status: TunnelStatus.connected,
+      message: 'AmneziaWG 3.1 подключён через UDP 5182.',
+    ));
+  }
+
+  Future<void> _refreshActiveStatus() async {
+    if (_activeProtocol == VpnProtocol.amneziaWg) {
+      final state = await _bridge.amneziaWgStatus();
+      if (state != 'up') {
+        _statusTimer?.cancel();
+        _setError('Соединение AmneziaWG остановлено: $state');
+      }
+      return;
+    }
+    await _refreshNativeStatus();
+  }
+
+  Future<void> saveAmneziaWgProfile(String profile) =>
+      _profileStore.saveAmneziaWgProfile(profile);
+
+  Future<bool> hasAmneziaWgProfile() =>
+      _profileStore.hasAmneziaWgProfile();
 
   Future<void> _refreshNativeStatus() async {
     try {

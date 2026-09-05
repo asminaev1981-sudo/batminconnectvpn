@@ -23,9 +23,12 @@ class HomePage extends StatelessWidget {
         state.status == TunnelStatus.preparing;
     final busy = connecting || state.status == TunnelStatus.disconnecting;
 
-    final serverAddress = switch (selectedProtocol) {
-      VpnProtocol.hysteria2 => '94.141.98.124:443',
-      VpnProtocol.amneziaWg => '94.141.98.124:51820',
+    final shownProtocol = controller.activeProtocol ?? selectedProtocol;
+    final serverAddress = controller.activePort != null
+        ? '94.141.98.124:${controller.activePort}'
+        : switch (selectedProtocol) {
+      VpnProtocol.hysteria2 => 'AUTO: 443 / 2053 / 2096 / 8443',
+      VpnProtocol.amneziaWg => '94.141.98.124:5182',
       VpnProtocol.auto => 'Автоматический выбор',
     };
 
@@ -114,7 +117,9 @@ class HomePage extends StatelessWidget {
                   ),
                   const SizedBox(height: 14),
                   _ServerCard(
-                    name: selectedProtocol.title,
+                    name: shownProtocol == VpnProtocol.amneziaWg
+                        ? 'AmneziaWG 3.1'
+                        : shownProtocol.title,
                     address: serverAddress,
                     connected: connected,
                   ),
