@@ -38,6 +38,22 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Restore Flutter Gradle wrapper
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if [[ ! -f android/gradlew || ! -f android/gradle/wrapper/gradle-wrapper.properties ]]; then
+            WRAPPER_SEED="$(mktemp -d)"
+            flutter create --platforms=android --project-name=batmin_wrapper_seed "$WRAPPER_SEED"
+            cp "$WRAPPER_SEED/android/gradlew" android/gradlew
+            cp "$WRAPPER_SEED/android/gradlew.bat" android/gradlew.bat
+            mkdir -p android/gradle/wrapper
+            cp "$WRAPPER_SEED/android/gradle/wrapper/gradle-wrapper.jar" android/gradle/wrapper/
+            cp "$WRAPPER_SEED/android/gradle/wrapper/gradle-wrapper.properties" android/gradle/wrapper/
+          fi
+          chmod +x android/gradlew
+          grep distributionUrl android/gradle/wrapper/gradle-wrapper.properties
+
       - name: Flutter diagnostics
         run: flutter doctor -v
 
