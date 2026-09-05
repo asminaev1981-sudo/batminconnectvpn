@@ -40,6 +40,27 @@ class AndroidVpnBridge {
     await _channel.invokeMethod<void>('stop');
   }
 
+  Future<void> startAmneziaWg({required String configText}) async {
+    if (!isSupported) {
+      throw UnsupportedError(
+        'VPN bridge is currently available only on Android',
+      );
+    }
+    await _channel.invokeMethod<void>('startAmneziaWg', <String, Object?>{
+      'configText': configText,
+    });
+  }
+
+  Future<void> stopAmneziaWg() async {
+    if (!isSupported) return;
+    await _channel.invokeMethod<void>('stopAmneziaWg');
+  }
+
+  Future<String> amneziaWgStatus() async {
+    if (!isSupported) return 'unsupported';
+    return await _channel.invokeMethod<String>('amneziaWgStatus') ?? 'unknown';
+  }
+
   Future<NativeVpnStatus> status() async {
     if (!isSupported) {
       return const NativeVpnStatus(state: NativeVpnState.unsupported);
