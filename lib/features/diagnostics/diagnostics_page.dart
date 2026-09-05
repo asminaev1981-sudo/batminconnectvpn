@@ -62,6 +62,28 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     );
 
     await _check(
+      'Доступ в интернет',
+      () async {
+        final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
+        try {
+          final request = await client.headUrl(Uri.parse('https://batminplatform.pro/'));
+          final response = await request.close().timeout(const Duration(seconds: 6));
+          await response.drain<void>();
+          if (response.statusCode < 200 || response.statusCode >= 500) {
+            throw HttpException('HTTP ${response.statusCode}');
+          }
+          return const _DiagnosticResult(
+            'Доступ в интернет',
+            true,
+            'HTTPS-трафик проходит через активное подключение',
+          );
+        } finally {
+          client.close(force: true);
+        }
+      },
+    );
+
+    await _check(
       'VPN Bridge',
       () async {
         if (!_bridge.isSupported) {

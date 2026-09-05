@@ -40,7 +40,6 @@
     }
   ],
   "route": {
-    "final": "batmin-hy2",
-    "auto_detect_interface": true
+    "final": "batmin-hy2"
   }
 }

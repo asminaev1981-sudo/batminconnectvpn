@@ -20,6 +20,7 @@ class ConnectionController extends ChangeNotifier {
   final http.Client _healthClient = http.Client();
   static const hysteriaPorts = <int>[443, 2053, 2096, 8443];
   static const amneziaWg31Port = 5182;
+  static final Uri _dataPlaneProbe = Uri.parse('https://batminplatform.pro/');
 
   VpnProtocol _selectedProtocol = VpnProtocol.hysteria2;
 
@@ -179,6 +180,7 @@ class ConnectionController extends ChangeNotifier {
         ));
         await _bridge.start(profileJson: jsonEncode(profile));
         await _waitForHysteriaReady();
+        await _verifyDataPlane();
         _activeProtocol = VpnProtocol.hysteria2;
         _activePort = port;
         _nextHysteriaIndex = (index + 1) % hysteriaPorts.length;
@@ -225,6 +227,7 @@ class ConnectionController extends ChangeNotifier {
     await _bridge.startAmneziaWg(configText: configText);
     final state = await _bridge.amneziaWgStatus();
     if (state != 'up') throw StateError('AmneziaWG не перешёл в состояние UP');
+    await _verifyDataPlane();
     _activeProtocol = VpnProtocol.amneziaWg;
     _activePort = amneziaWg31Port;
     _consecutiveHealthFailures = 0;
@@ -261,12 +264,7 @@ class ConnectionController extends ChangeNotifier {
     }
     _dataProbeInProgress = true;
     try {
-      final response = await _healthClient
-          .head(Uri.parse('https://batminplatform.pro/'))
-          .timeout(const Duration(seconds: 4));
-      if (response.statusCode >= 500) {
-        throw StateError('HTTP ${response.statusCode}');
-      }
+      await _verifyDataPlane();
       _consecutiveDataFailures = 0;
     } catch (error) {
       _consecutiveDataFailures++;
@@ -283,6 +281,15 @@ class ConnectionController extends ChangeNotifier {
       }
     } finally {
       _dataProbeInProgress = false;
+    }
+  }
+
+  Future<void> _verifyDataPlane() async {
+    final response = await _healthClient
+        .head(_dataPlaneProbe)
+        .timeout(const Duration(seconds: 6));
+    if (response.statusCode < 200 || response.statusCode >= 500) {
+      throw StateError('HTTP ${response.statusCode}');
     }
   }
 

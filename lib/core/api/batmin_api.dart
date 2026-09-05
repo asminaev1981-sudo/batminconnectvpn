@@ -13,6 +13,10 @@ class BatminApi {
     if (response.statusCode != 200) {
       throw StateError('API error: ${response.statusCode}');
     }
-    return jsonDecode(response.body) as Map<String, dynamic>;
+    try {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    } on FormatException {
+      throw StateError('API ещё не настроен: сервер вернул веб-страницу вместо JSON');
+    }
   }
 }
