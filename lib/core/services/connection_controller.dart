@@ -41,6 +41,8 @@ class ConnectionController extends ChangeNotifier {
 
   Timer? _statusTimer;
   bool _operationInProgress = false;
+  bool _telemetryInProgress = false;
+  NativeTelemetry? _previousTelemetry;
 
   ConnectionSnapshot _snapshot = const ConnectionSnapshot(
     status: TunnelStatus.disconnected,
@@ -125,6 +127,7 @@ class ConnectionController extends ChangeNotifier {
       _statusTimer?.cancel();
       _activeProtocol = null;
       _activePort = null;
+      _previousTelemetry = null;
       _setSnapshot(const ConnectionSnapshot(
         status: TunnelStatus.disconnected,
         message: 'VPN отключён.',
@@ -223,9 +226,43 @@ class ConnectionController extends ChangeNotifier {
         _statusTimer?.cancel();
         _setError('Соединение AmneziaWG остановлено: $state');
       }
+      await _refreshTelemetry();
       return;
     }
     await _refreshNativeStatus();
+    await _refreshTelemetry();
+  }
+
+  Future<void> _refreshTelemetry() async {
+    if (_telemetryInProgress || _snapshot.status != TunnelStatus.connected) {
+      return;
+    }
+    _telemetryInProgress = true;
+    try {
+      final current = await _bridge.telemetry();
+      final previous = _previousTelemetry;
+      _previousTelemetry = current;
+      if (previous == null) {
+        _setSnapshot(_snapshot.copyWith(
+          pingMs: current.pingMs > 0 ? current.pingMs : 0,
+        ));
+        return;
+      }
+      final elapsedMs = current.timestampMs - previous.timestampMs;
+      if (elapsedMs <= 0) return;
+      final rxDelta = current.rxBytes - previous.rxBytes;
+      final txDelta = current.txBytes - previous.txBytes;
+      final seconds = elapsedMs / 1000.0;
+      _setSnapshot(_snapshot.copyWith(
+        pingMs: current.pingMs > 0 ? current.pingMs : _snapshot.pingMs,
+        downloadMbps: rxDelta > 0 ? (rxDelta * 8) / seconds / 1000000 : 0,
+        uploadMbps: txDelta > 0 ? (txDelta * 8) / seconds / 1000000 : 0,
+      ));
+    } catch (_) {
+      // Telemetry must never interrupt an otherwise healthy VPN tunnel.
+    } finally {
+      _telemetryInProgress = false;
+    }
   }
 
   Future<void> saveAmneziaWgProfile(String profile) =>

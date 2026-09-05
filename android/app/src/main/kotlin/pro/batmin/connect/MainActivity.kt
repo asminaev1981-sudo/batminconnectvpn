@@ -3,10 +3,15 @@ package pro.batmin.connect
 import android.app.Activity
 import android.content.Intent
 import android.net.VpnService
+import android.net.TrafficStats
+import android.os.Process
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.net.InetAddress
+import kotlin.concurrent.thread
 
 class MainActivity : FlutterActivity() {
     private val channelName = "pro.batmin.connect/vpn"
@@ -40,6 +45,11 @@ class MainActivity : FlutterActivity() {
                             amneziaWgController.state().name.lowercase()
                         )
 
+                    "telemetry" -> collectTelemetry(
+                        call.argument<String>("host") ?: "94.141.98.124",
+                        result
+                    )
+
                     "status" -> result.success(BatminVpnService.currentState.name.lowercase())
                     "statusDetails" -> result.success(mapOf(
                         "state" to BatminVpnService.currentState.name.lowercase(),
@@ -63,6 +73,24 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun collectTelemetry(host: String, result: MethodChannel.Result) {
+        thread(name = "batmin-telemetry", isDaemon = true) {
+            val started = SystemClock.elapsedRealtime()
+            val reachable = runCatching {
+                InetAddress.getByName(host).isReachable(1200)
+            }.getOrDefault(false)
+            val elapsed = (SystemClock.elapsedRealtime() - started).toInt()
+            val uid = Process.myUid()
+            val payload = mapOf(
+                "pingMs" to if (reachable) elapsed else -1,
+                "rxBytes" to TrafficStats.getUidRxBytes(uid),
+                "txBytes" to TrafficStats.getUidTxBytes(uid),
+                "timestampMs" to SystemClock.elapsedRealtime(),
+            )
+            runOnUiThread { result.success(payload) }
+        }
     }
 
     private fun prepareVpn(result: MethodChannel.Result) {

@@ -16,6 +16,20 @@ class NativeVpnStatus {
   final bool engineAvailable;
 }
 
+class NativeTelemetry {
+  const NativeTelemetry({
+    required this.pingMs,
+    required this.rxBytes,
+    required this.txBytes,
+    required this.timestampMs,
+  });
+
+  final int pingMs;
+  final int rxBytes;
+  final int txBytes;
+  final int timestampMs;
+}
+
 class AndroidVpnBridge {
   static const MethodChannel _channel = MethodChannel('pro.batmin.connect/vpn');
 
@@ -59,6 +73,19 @@ class AndroidVpnBridge {
   Future<String> amneziaWgStatus() async {
     if (!isSupported) return 'unsupported';
     return await _channel.invokeMethod<String>('amneziaWgStatus') ?? 'unknown';
+  }
+
+  Future<NativeTelemetry> telemetry({String host = '94.141.98.124'}) async {
+    final raw = await _channel.invokeMapMethod<String, Object?>(
+      'telemetry',
+      <String, Object?>{'host': host},
+    );
+    return NativeTelemetry(
+      pingMs: (raw?['pingMs'] as num?)?.toInt() ?? -1,
+      rxBytes: (raw?['rxBytes'] as num?)?.toInt() ?? 0,
+      txBytes: (raw?['txBytes'] as num?)?.toInt() ?? 0,
+      timestampMs: (raw?['timestampMs'] as num?)?.toInt() ?? 0,
+    );
   }
 
   Future<NativeVpnStatus> status() async {
