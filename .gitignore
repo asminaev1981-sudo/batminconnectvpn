@@ -8,3 +8,4 @@ android/local.properties
 *.iml
 .flutter-plugins
 .flutter-plugins-dependencies
+.server-access/
