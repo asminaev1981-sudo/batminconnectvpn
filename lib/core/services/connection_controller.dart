@@ -43,6 +43,11 @@ class ConnectionController extends ChangeNotifier {
   bool _operationInProgress = false;
   bool _telemetryInProgress = false;
   NativeTelemetry? _previousTelemetry;
+  int _consecutiveHealthFailures = 0;
+  int _nextHysteriaIndex = 0;
+  DateTime? _lastAutomaticSwitch;
+  static const _failureThreshold = 3;
+  static const _switchCooldown = Duration(seconds: 30);
 
   ConnectionSnapshot _snapshot = const ConnectionSnapshot(
     status: TunnelStatus.disconnected,
@@ -152,7 +157,9 @@ class ConnectionController extends ChangeNotifier {
   Future<void> _connectHysteriaWithFallback() async {
     final source = await rootBundle.loadString('assets/config/batmin_hysteria2.json');
     Object? lastError;
-    for (final port in hysteriaPorts) {
+    for (var offset = 0; offset < hysteriaPorts.length; offset++) {
+      final index = (_nextHysteriaIndex + offset) % hysteriaPorts.length;
+      final port = hysteriaPorts[index];
       try {
         final profile = jsonDecode(source) as Map<String, dynamic>;
         final outbounds = profile['outbounds'] as List<dynamic>;
@@ -168,6 +175,8 @@ class ConnectionController extends ChangeNotifier {
         await _waitForHysteriaReady();
         _activeProtocol = VpnProtocol.hysteria2;
         _activePort = port;
+        _nextHysteriaIndex = (index + 1) % hysteriaPorts.length;
+        _consecutiveHealthFailures = 0;
         _startStatusPolling();
         _setSnapshot(ConnectionSnapshot(
           status: TunnelStatus.connected,
@@ -212,6 +221,7 @@ class ConnectionController extends ChangeNotifier {
     if (state != 'up') throw StateError('AmneziaWG не перешёл в состояние UP');
     _activeProtocol = VpnProtocol.amneziaWg;
     _activePort = amneziaWg31Port;
+    _consecutiveHealthFailures = 0;
     _startStatusPolling();
     _setSnapshot(const ConnectionSnapshot(
       status: TunnelStatus.connected,
@@ -223,8 +233,9 @@ class ConnectionController extends ChangeNotifier {
     if (_activeProtocol == VpnProtocol.amneziaWg) {
       final state = await _bridge.amneziaWgStatus();
       if (state != 'up') {
-        _statusTimer?.cancel();
-        _setError('Соединение AmneziaWG остановлено: $state');
+        await _handleHealthFailure('AmneziaWG остановлен: $state');
+      } else {
+        _consecutiveHealthFailures = 0;
       }
       await _refreshTelemetry();
       return;
@@ -282,6 +293,7 @@ class ConnectionController extends ChangeNotifier {
           ));
           return;
         case NativeVpnState.ready:
+          _consecutiveHealthFailures = 0;
           _setSnapshot(_snapshot.copyWith(
             status: native.engineAvailable
                 ? TunnelStatus.connected
@@ -297,15 +309,10 @@ class ConnectionController extends ChangeNotifier {
           ));
           return;
         case NativeVpnState.stopped:
-          _statusTimer?.cancel();
-          _setSnapshot(const ConnectionSnapshot(
-            status: TunnelStatus.disconnected,
-            message: 'VPN-служба остановлена.',
-          ));
+          await _handleHealthFailure('VPN-служба неожиданно остановлена');
           return;
         case NativeVpnState.error:
-          _statusTimer?.cancel();
-          _setError(native.message.isEmpty
+          await _handleHealthFailure(native.message.isEmpty
               ? 'VPN-служба завершилась с ошибкой.'
               : native.message);
           return;
@@ -315,8 +322,77 @@ class ConnectionController extends ChangeNotifier {
           return;
       }
     } catch (error) {
+      await _handleHealthFailure(
+        'Не удалось получить состояние VPN-службы: $error',
+      );
+    }
+  }
+
+  Future<void> _handleHealthFailure(String reason) async {
+    _consecutiveHealthFailures++;
+    if (_selectedProtocol != VpnProtocol.auto) {
+      if (_consecutiveHealthFailures >= _failureThreshold) {
+        _statusTimer?.cancel();
+        _setError(reason);
+      }
+      return;
+    }
+
+    if (_consecutiveHealthFailures < _failureThreshold) {
+      _setSnapshot(_snapshot.copyWith(
+        message: 'Проверяю стабильность '
+            '($_consecutiveHealthFailures/$_failureThreshold)…',
+      ));
+      return;
+    }
+
+    final lastSwitch = _lastAutomaticSwitch;
+    if (lastSwitch != null &&
+        DateTime.now().difference(lastSwitch) < _switchCooldown) {
+      _setSnapshot(_snapshot.copyWith(
+        message: 'AUTO ожидает завершения защитного интервала.',
+      ));
+      return;
+    }
+    await _recoverAutomatically(reason);
+  }
+
+  Future<void> _recoverAutomatically(String reason) async {
+    if (_operationInProgress) return;
+    _operationInProgress = true;
+    _statusTimer?.cancel();
+    final previousProtocol = _activeProtocol;
+    final previousPort = _activePort;
+    _setSnapshot(_snapshot.copyWith(
+      status: TunnelStatus.connecting,
+      message: 'AUTO: переключение после сбоя — $reason',
+    ));
+    try {
+      if (previousProtocol == VpnProtocol.amneziaWg) {
+        await _bridge.stopAmneziaWg();
+      } else {
+        await _bridge.stop();
+      }
+      _activeProtocol = null;
+      _activePort = null;
+      _previousTelemetry = null;
+      try {
+        await _connectHysteriaWithFallback();
+      } catch (_) {
+        await _connectAmneziaWg();
+      }
+      _lastAutomaticSwitch = DateTime.now();
+      _setSnapshot(_snapshot.copyWith(
+        message: 'AUTO переключил ${previousProtocol?.title ?? 'VPN'} '
+            '${previousPort == null ? '' : 'с UDP $previousPort '}на '
+            '${_activeProtocol?.title} UDP $_activePort.',
+      ));
+    } catch (error) {
       _statusTimer?.cancel();
-      _setError('Не удалось получить состояние VPN-службы: $error');
+      _setError('AUTO не смог восстановить соединение: $error');
+    } finally {
+      _consecutiveHealthFailures = 0;
+      _operationInProgress = false;
     }
   }
 
