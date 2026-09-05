@@ -1,7 +1,7 @@
 name: batmin_connect
 description: Batmin Connect — secure connection client for Batmin Platform.
 publish_to: none
-version: 0.6.5+11
+version: 0.6.6+12
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
