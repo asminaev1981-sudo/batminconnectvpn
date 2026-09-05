@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 
 import '../models/connection_state.dart';
 import '../models/vpn_protocol.dart';
@@ -16,6 +17,7 @@ class ConnectionController extends ChangeNotifier {
 
   final AndroidVpnBridge _bridge;
   final VpnProfileStore _profileStore;
+  final http.Client _healthClient = http.Client();
   static const hysteriaPorts = <int>[443, 2053, 2096, 8443];
   static const amneziaWg31Port = 5182;
 
@@ -44,6 +46,9 @@ class ConnectionController extends ChangeNotifier {
   bool _telemetryInProgress = false;
   NativeTelemetry? _previousTelemetry;
   int _consecutiveHealthFailures = 0;
+  int _consecutiveDataFailures = 0;
+  int _dataProbeTick = 0;
+  bool _dataProbeInProgress = false;
   int _nextHysteriaIndex = 0;
   DateTime? _lastAutomaticSwitch;
   static const _failureThreshold = 3;
@@ -133,6 +138,7 @@ class ConnectionController extends ChangeNotifier {
       _activeProtocol = null;
       _activePort = null;
       _previousTelemetry = null;
+      _consecutiveDataFailures = 0;
       _setSnapshot(const ConnectionSnapshot(
         status: TunnelStatus.disconnected,
         message: 'VPN отключён.',
@@ -238,10 +244,46 @@ class ConnectionController extends ChangeNotifier {
         _consecutiveHealthFailures = 0;
       }
       await _refreshTelemetry();
+      await _refreshDataPlaneHealth();
       return;
     }
     await _refreshNativeStatus();
     await _refreshTelemetry();
+    await _refreshDataPlaneHealth();
+  }
+
+  Future<void> _refreshDataPlaneHealth() async {
+    _dataProbeTick++;
+    if (_dataProbeTick % 5 != 0 ||
+        _dataProbeInProgress ||
+        _snapshot.status != TunnelStatus.connected) {
+      return;
+    }
+    _dataProbeInProgress = true;
+    try {
+      final response = await _healthClient
+          .head(Uri.parse('https://batminplatform.pro/'))
+          .timeout(const Duration(seconds: 4));
+      if (response.statusCode >= 500) {
+        throw StateError('HTTP ${response.statusCode}');
+      }
+      _consecutiveDataFailures = 0;
+    } catch (error) {
+      _consecutiveDataFailures++;
+      if (_consecutiveDataFailures >= _failureThreshold) {
+        await _handleHealthFailure(
+          'Нет передачи данных через VPN: $error',
+          confirmed: true,
+        );
+      } else {
+        _setSnapshot(_snapshot.copyWith(
+          message: 'Проверяю передачу данных '
+              '($_consecutiveDataFailures/$_failureThreshold)…',
+        ));
+      }
+    } finally {
+      _dataProbeInProgress = false;
+    }
   }
 
   Future<void> _refreshTelemetry() async {
@@ -328,8 +370,13 @@ class ConnectionController extends ChangeNotifier {
     }
   }
 
-  Future<void> _handleHealthFailure(String reason) async {
-    _consecutiveHealthFailures++;
+  Future<void> _handleHealthFailure(
+    String reason, {
+    bool confirmed = false,
+  }) async {
+    _consecutiveHealthFailures = confirmed
+        ? _failureThreshold
+        : _consecutiveHealthFailures + 1;
     if (_selectedProtocol != VpnProtocol.auto) {
       if (_consecutiveHealthFailures >= _failureThreshold) {
         _statusTimer?.cancel();
@@ -376,6 +423,7 @@ class ConnectionController extends ChangeNotifier {
       _activeProtocol = null;
       _activePort = null;
       _previousTelemetry = null;
+      _consecutiveDataFailures = 0;
       try {
         await _connectHysteriaWithFallback();
       } catch (_) {
@@ -411,6 +459,7 @@ class ConnectionController extends ChangeNotifier {
   @override
   void dispose() {
     _statusTimer?.cancel();
+    _healthClient.close();
     super.dispose();
   }
 }
