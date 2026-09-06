@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.Build
 import io.nekohasekai.libbox.ConnectionOwner
 import io.nekohasekai.libbox.ExchangeContext
 import io.nekohasekai.libbox.InterfaceUpdateListener
@@ -91,6 +92,10 @@ class LibboxPlatform(
             .setSession("Batmin Connect")
             .setMtu(options.mtu)
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            builder.setMetered(false)
+        }
+
         fun addAddresses(iterator: io.nekohasekai.libbox.RoutePrefixIterator) {
             while (iterator.hasNext()) {
                 val prefix = iterator.next()
@@ -108,8 +113,19 @@ class LibboxPlatform(
         addAddresses(options.inet4Address)
         addAddresses(options.inet6Address)
 
-        addRoutes(options.inet4RouteAddress)
-        addRoutes(options.inet6RouteAddress)
+        if (options.autoRoute) {
+            // Android 13 introduced IpPrefix/excludeRoute support. On older
+            // releases libbox supplies the already-expanded route ranges
+            // instead; reading inet*RouteAddress there leaves the VPN without
+            // a default route even though the TUN itself is established.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                addRoutes(options.inet4RouteAddress)
+                addRoutes(options.inet6RouteAddress)
+            } else {
+                addRoutes(options.inet4RouteRange)
+                addRoutes(options.inet6RouteRange)
+            }
+        }
 
         underlyingNetwork()?.let { network ->
             builder.setUnderlyingNetworks(arrayOf(network))
