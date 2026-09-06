@@ -17,11 +17,15 @@ class ConnectionController extends ChangeNotifier {
 
   final AndroidVpnBridge _bridge;
   final VpnProfileStore _profileStore;
-  static const hysteriaPorts = <int>[443, 2053, 2096, 8443];
+  // UDP/443 can pass a tiny handshake while sustained QUIC traffic is shaped
+  // or dropped by the access network. Prefer the alternate listeners and use
+  // 443 only as the last fallback.
+  static const hysteriaPorts = <int>[2053, 8443, 2096, 443];
   static const amneziaWg31Port = 5182;
   static final Uri _ipDataPlaneProbe =
       Uri.parse('https://1.1.1.1/cdn-cgi/trace');
   static final Uri _dataPlaneProbe = Uri.parse('https://batminplatform.pro/');
+  static const _minimumProbeBytes = 64 * 1024;
 
   VpnProtocol _selectedProtocol = VpnProtocol.hysteria2;
 
@@ -319,6 +323,36 @@ class ConnectionController extends ChangeNotifier {
         }
       } catch (error) {
         throw StateError('выход по IP есть, но DNS не работает: $error');
+      }
+
+      // HEAD/generate_204 probes are too small to expose a degraded UDP path.
+      // Read a real response body so AUTO rejects ports that complete the
+      // handshake but stall as soon as application traffic starts flowing.
+      try {
+        final transferProbe = Uri.parse(
+          'https://speed.cloudflare.com/__down?bytes=131072'
+          '&cache=${DateTime.now().microsecondsSinceEpoch}',
+        );
+        final request = http.Request('GET', transferProbe)
+          ..headers['cache-control'] = 'no-cache';
+        final response = await client
+            .send(request)
+            .timeout(const Duration(seconds: 15));
+        if (response.statusCode != 200) {
+          throw StateError('HTTP ${response.statusCode}');
+        }
+        var received = 0;
+        await for (final chunk in response.stream.timeout(
+          const Duration(seconds: 8),
+        )) {
+          received += chunk.length;
+          if (received >= _minimumProbeBytes) break;
+        }
+        if (received < _minimumProbeBytes) {
+          throw StateError('получено только $received байт');
+        }
+      } catch (error) {
+        throw StateError('порт не передаёт реальный трафик: $error');
       }
     } finally {
       client.close();
