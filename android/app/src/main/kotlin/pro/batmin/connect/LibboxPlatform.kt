@@ -5,9 +5,11 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Build
+import android.system.OsConstants
 import io.nekohasekai.libbox.ConnectionOwner
 import io.nekohasekai.libbox.ExchangeContext
 import io.nekohasekai.libbox.InterfaceUpdateListener
+import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.LocalDNSTransport
 import io.nekohasekai.libbox.NetworkInterface
 import io.nekohasekai.libbox.NetworkInterfaceIterator
@@ -68,6 +70,33 @@ class LibboxPlatform(
                 name = interfaceName
                 index = systemInterface.index
                 mtu = link.mtu.takeIf { it > 0 } ?: systemInterface.mtu
+                dnsServer = StringListIterator(
+                    link.dnsServers.mapNotNull { it.hostAddress }
+                )
+                gateway = StringListIterator(
+                    link.routes
+                        .filter { it.destination.prefixLength == 0 }
+                        .mapNotNull { it.gateway?.hostAddress }
+                )
+                type = when {
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ->
+                        Libbox.InterfaceTypeWIFI
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ->
+                        Libbox.InterfaceTypeCellular
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ->
+                        Libbox.InterfaceTypeEthernet
+                    else -> Libbox.InterfaceTypeOther
+                }
+                flags = if (capabilities.hasCapability(
+                        NetworkCapabilities.NET_CAPABILITY_INTERNET
+                    )) {
+                    OsConstants.IFF_UP or OsConstants.IFF_RUNNING
+                } else {
+                    0
+                }
+                metered = !capabilities.hasCapability(
+                    NetworkCapabilities.NET_CAPABILITY_NOT_METERED
+                )
                 // libbox parses these values as netip.Prefix, not bare IPs.
                 addresses = StringListIterator(link.linkAddresses.map { it.toString() })
             }
@@ -171,7 +200,10 @@ class LibboxPlatform(
 
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
 
-    override fun useProcFS(): Boolean = true
+    // Android 10+ restricts /proc network inspection. libbox must use the
+    // PlatformInterface inventory above, otherwise it reports
+    // "no available network interface" after receiving a TUN packet.
+    override fun useProcFS(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
 
     private fun underlyingNetwork(): Network? {
         return connectivityManager.allNetworks
