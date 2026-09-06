@@ -28,6 +28,7 @@ class LibboxPlatform(
     private val connectivityManager =
         vpnService.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     @Volatile private var defaultInterfaceListener: InterfaceUpdateListener? = null
+    @Volatile private var defaultInterfacePublished = false
 
     override fun autoDetectInterfaceControl(fd: Int) {
         if (!vpnService.protect(fd)) {
@@ -42,6 +43,7 @@ class LibboxPlatform(
     override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
         if (defaultInterfaceListener === listener) {
             defaultInterfaceListener = null
+            defaultInterfacePublished = false
         }
         VpnLog.add("PlatformInterface.closeDefaultInterfaceMonitor()")
     }
@@ -183,6 +185,7 @@ class LibboxPlatform(
 
     override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
         defaultInterfaceListener = listener
+        defaultInterfacePublished = false
         // Do not call back synchronously from this gomobile entry point. The
         // route service is not fully installed yet and silently loses an early
         // update. Retry after startup so both CommandServer and the Hysteria
@@ -218,6 +221,14 @@ class LibboxPlatform(
     // "no available network interface" after receiving a TUN packet.
     override fun useProcFS(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
 
+    fun awaitDefaultInterface(timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (!defaultInterfacePublished && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25)
+        }
+        return defaultInterfacePublished
+    }
+
     private fun underlyingNetwork(): Network? {
         return connectivityManager.allNetworks
             .filter { network ->
@@ -252,6 +263,7 @@ class LibboxPlatform(
                 false,
                 false
             )
+            defaultInterfacePublished = true
             VpnLog.add(
                 "Default interface published to libbox: $interfaceName ($interfaceIndex)"
             )

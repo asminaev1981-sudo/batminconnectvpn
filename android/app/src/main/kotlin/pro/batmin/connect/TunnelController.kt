@@ -93,6 +93,12 @@ class TunnelController(private val vpnService: BatminVpnService) {
 
             server.startOrReloadService(profileJson, overrideOptions)
 
+            if (!platform.awaitDefaultInterface(5_000)) {
+                throw IllegalStateException(
+                    "Android не передал физический сетевой интерфейс в libbox"
+                )
+            }
+
             commandServer = server
 
             VpnLog.add("libbox CommandServer started")
