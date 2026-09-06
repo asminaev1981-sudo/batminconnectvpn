@@ -23,6 +23,7 @@
         "172.19.0.1/30",
         "fdfe:dcba:9876::1/126"
       ],
+      "mtu": 1400,
       "auto_route": true,
       "strict_route": true,
       "stack": "mixed"
@@ -50,6 +51,11 @@
       {
         "protocol": "dns",
         "action": "hijack-dns"
+      },
+      {
+        "network": "udp",
+        "port": 443,
+        "action": "reject"
       }
     ],
     "auto_detect_interface": true,
