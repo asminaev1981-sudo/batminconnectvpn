@@ -75,7 +75,7 @@ class _SettingsPageState extends State<SettingsPage> {
           }
         },
       ),
-      const ListTile(title: Text('Версия'), trailing: Text('0.6.12')),
+      const ListTile(title: Text('Версия'), trailing: Text('0.6.13')),
     ]),
   );
 }

@@ -17,9 +17,10 @@ class ConnectionController extends ChangeNotifier {
 
   final AndroidVpnBridge _bridge;
   final VpnProfileStore _profileStore;
-  final http.Client _healthClient = http.Client();
   static const hysteriaPorts = <int>[443, 2053, 2096, 8443];
   static const amneziaWg31Port = 5182;
+  static final Uri _ipDataPlaneProbe =
+      Uri.parse('https://1.1.1.1/cdn-cgi/trace');
   static final Uri _dataPlaneProbe = Uri.parse('https://batminplatform.pro/');
 
   VpnProtocol _selectedProtocol = VpnProtocol.hysteria2;
@@ -197,9 +198,13 @@ class ConnectionController extends ChangeNotifier {
         await Future<void>.delayed(const Duration(milliseconds: 350));
       }
     }
+    final nativeLog = await _bridge.logs();
+    final diagnostic = nativeLog.isEmpty
+        ? 'журнал libbox пуст'
+        : nativeLog.skip(nativeLog.length > 8 ? nativeLog.length - 8 : 0).join(' | ');
     throw StateError(
       'Hysteria2 доступен, но интернет-трафик через туннель '
-      'не прошёл: $lastError',
+      'не прошёл: $lastError. Диагностика: $diagnostic',
     );
   }
 
@@ -288,11 +293,33 @@ class ConnectionController extends ChangeNotifier {
   }
 
   Future<void> _verifyDataPlane() async {
-    final response = await _healthClient
-        .head(_dataPlaneProbe)
-        .timeout(const Duration(seconds: 6));
-    if (response.statusCode < 200 || response.statusCode >= 500) {
-      throw StateError('HTTP ${response.statusCode}');
+    // Use a fresh connection for every check. A pooled socket opened before
+    // Android installed the VPN route can otherwise produce a false success.
+    final client = http.Client();
+    try {
+      try {
+        final response = await client
+            .head(_ipDataPlaneProbe)
+            .timeout(const Duration(seconds: 8));
+        if (response.statusCode < 200 || response.statusCode >= 500) {
+          throw StateError('HTTP ${response.statusCode}');
+        }
+      } catch (error) {
+        throw StateError('нет выхода по IP через TUN: $error');
+      }
+
+      try {
+        final response = await client
+            .head(_dataPlaneProbe)
+            .timeout(const Duration(seconds: 8));
+        if (response.statusCode < 200 || response.statusCode >= 500) {
+          throw StateError('HTTP ${response.statusCode}');
+        }
+      } catch (error) {
+        throw StateError('выход по IP есть, но DNS не работает: $error');
+      }
+    } finally {
+      client.close();
     }
   }
 
@@ -469,7 +496,6 @@ class ConnectionController extends ChangeNotifier {
   @override
   void dispose() {
     _statusTimer?.cancel();
-    _healthClient.close();
     super.dispose();
   }
 }
