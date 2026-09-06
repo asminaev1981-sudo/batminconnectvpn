@@ -5,6 +5,8 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.Handler
+import android.os.Looper
 import io.nekohasekai.libbox.ConnectionOwner
 import io.nekohasekai.libbox.ExchangeContext
 import io.nekohasekai.libbox.InterfaceUpdateListener
@@ -28,6 +30,7 @@ class LibboxPlatform(
         vpnService.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     private val interfaceMonitors =
         ConcurrentHashMap<InterfaceUpdateListener, ConnectivityManager.NetworkCallback>()
+    private val networkCallbackHandler = Handler(Looper.getMainLooper())
 
     override fun autoDetectInterfaceControl(fd: Int) {
         if (!vpnService.protect(fd)) {
@@ -129,10 +132,10 @@ class LibboxPlatform(
     override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
         closeDefaultInterfaceMonitor(listener)
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = notifyDefaultInterface(listener)
-            override fun onLost(network: Network) = notifyDefaultInterface(listener)
+            override fun onAvailable(network: Network) = scheduleDefaultInterfaceUpdate(listener)
+            override fun onLost(network: Network) = scheduleDefaultInterfaceUpdate(listener)
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) =
-                notifyDefaultInterface(listener)
+                scheduleDefaultInterfaceUpdate(listener)
         }
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
@@ -140,7 +143,10 @@ class LibboxPlatform(
             .build()
         interfaceMonitors[listener] = callback
         connectivityManager.registerNetworkCallback(request, callback)
-        notifyDefaultInterface(listener)
+        // Never call back into Go synchronously while gomobile is still inside
+        // StartDefaultInterfaceMonitor. Older Android/Go combinations can abort
+        // the whole process when that callback grows the system stack.
+        scheduleDefaultInterfaceUpdate(listener)
         VpnLog.add("PlatformInterface.startDefaultInterfaceMonitor(): active")
     }
 
@@ -159,6 +165,17 @@ class LibboxPlatform(
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
 
     override fun useProcFS(): Boolean = true
+
+    private fun scheduleDefaultInterfaceUpdate(listener: InterfaceUpdateListener) {
+        networkCallbackHandler.post {
+            if (interfaceMonitors.containsKey(listener)) {
+                runCatching { notifyDefaultInterface(listener) }
+                    .onFailure { error ->
+                        VpnLog.add("Default interface update failed: ${error.message}")
+                    }
+            }
+        }
+    }
 
     private fun notifyDefaultInterface(listener: InterfaceUpdateListener) {
         val network = underlyingNetwork() ?: return
