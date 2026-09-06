@@ -154,7 +154,30 @@ class LibboxPlatform(
     }
 
     override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
-        VpnLog.add("PlatformInterface.startDefaultInterfaceMonitor(): disabled for compatibility")
+        // gomobile callbacks must not be invoked synchronously while libbox is
+        // still entering startDefaultInterfaceMonitor(): that caused the old
+        // native crash. Publish the current Android uplink after the call has
+        // returned, on a dedicated thread. A one-shot update is sufficient for
+        // startup; reconnect/AUTO handles a later physical network change.
+        Thread {
+            runCatching {
+                val network = underlyingNetwork()
+                    ?: error("Android has no physical default network")
+                val link = connectivityManager.getLinkProperties(network)
+                    ?: error("Android default network has no LinkProperties")
+                val name = link.interfaceName
+                    ?: error("Android default network has no interface name")
+                val index = java.net.NetworkInterface.getByName(name)?.index
+                    ?: error("Android interface $name was not found")
+                listener.updateDefaultInterface(name, index, false, false)
+                VpnLog.add("Default interface published to libbox: $name ($index)")
+            }.onFailure { error ->
+                VpnLog.add("Default interface update failed: ${error.message}")
+            }
+        }.apply {
+            name = "batmin-default-network"
+            isDaemon = true
+        }.start()
     }
 
     override fun systemCertificates(): StringIterator {
