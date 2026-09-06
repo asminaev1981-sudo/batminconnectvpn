@@ -6,11 +6,13 @@
   "dns": {
     "servers": [
       {
-        "type": "local",
-        "tag": "dns-local"
+        "type": "udp",
+        "tag": "dns-remote",
+        "server": "1.1.1.1",
+        "server_port": 53
       }
     ],
-    "final": "dns-local"
+    "final": "dns-remote"
   },
   "inbounds": [
     {
