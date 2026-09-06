@@ -298,9 +298,11 @@ class ConnectionController extends ChangeNotifier {
     final client = http.Client();
     try {
       try {
+        final request = http.Request('HEAD', _ipDataPlaneProbe)
+          ..followRedirects = false;
         final response = await client
-            .head(_ipDataPlaneProbe)
-            .timeout(const Duration(seconds: 8));
+            .send(request)
+            .timeout(const Duration(seconds: 12));
         if (response.statusCode < 200 || response.statusCode >= 500) {
           throw StateError('HTTP ${response.statusCode}');
         }
@@ -311,7 +313,7 @@ class ConnectionController extends ChangeNotifier {
       try {
         final response = await client
             .head(_dataPlaneProbe)
-            .timeout(const Duration(seconds: 8));
+            .timeout(const Duration(seconds: 12));
         if (response.statusCode < 200 || response.statusCode >= 500) {
           throw StateError('HTTP ${response.statusCode}');
         }

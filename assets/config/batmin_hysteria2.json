@@ -9,7 +9,8 @@
         "type": "udp",
         "tag": "dns-remote",
         "server": "1.1.1.1",
-        "server_port": 53
+        "server_port": 53,
+        "detour": "batmin-hy2"
       }
     ],
     "final": "dns-remote"
@@ -42,6 +43,15 @@
     }
   ],
   "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      }
+    ],
     "auto_detect_interface": true,
     "final": "batmin-hy2"
   }
