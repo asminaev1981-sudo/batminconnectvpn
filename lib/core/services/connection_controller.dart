@@ -197,7 +197,10 @@ class ConnectionController extends ChangeNotifier {
         await Future<void>.delayed(const Duration(milliseconds: 350));
       }
     }
-    throw StateError('Все порты Hysteria2 недоступны: $lastError');
+    throw StateError(
+      'Hysteria2 доступен, но интернет-трафик через туннель '
+      'не прошёл: $lastError',
+    );
   }
 
   Future<void> _waitForHysteriaReady() async {

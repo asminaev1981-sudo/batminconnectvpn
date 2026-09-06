@@ -50,10 +50,31 @@ class LibboxPlatform(
     }
 
     override fun getInterfaces(): NetworkInterfaceIterator {
+        val interfaces = connectivityManager.allNetworks.mapNotNull { network ->
+            val capabilities = connectivityManager.getNetworkCapabilities(network)
+                ?: return@mapNotNull null
+            if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) {
+                return@mapNotNull null
+            }
+            val link = connectivityManager.getLinkProperties(network)
+                ?: return@mapNotNull null
+            val interfaceName = link.interfaceName ?: return@mapNotNull null
+            val systemInterface = runCatching {
+                java.net.NetworkInterface.getByName(interfaceName)
+            }.getOrNull() ?: return@mapNotNull null
+
+            NetworkInterface().apply {
+                name = interfaceName
+                index = systemInterface.index
+                mtu = link.mtu.takeIf { it > 0 } ?: systemInterface.mtu
+                // libbox parses these values as netip.Prefix, not bare IPs.
+                addresses = StringListIterator(link.linkAddresses.map { it.toString() })
+            }
+        }
         return object : NetworkInterfaceIterator {
-            override fun hasNext(): Boolean = false
-            override fun next(): NetworkInterface =
-                throw NoSuchElementException("Platform interface enumeration disabled")
+            private var position = 0
+            override fun hasNext(): Boolean = position < interfaces.size
+            override fun next(): NetworkInterface = interfaces[position++]
         }
     }
 
@@ -154,6 +175,13 @@ class LibboxPlatform(
             }
     }
 
+}
+
+private class StringListIterator(private val values: List<String>) : StringIterator {
+    private var position = 0
+    override fun hasNext(): Boolean = position < values.size
+    override fun len(): Int = values.size
+    override fun next(): String = values[position++]
 }
 
 /**
