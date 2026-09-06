@@ -25,6 +25,7 @@ class LibboxPlatform(
 ) : PlatformInterface {
     private val connectivityManager =
         vpnService.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    @Volatile private var defaultInterfaceListener: InterfaceUpdateListener? = null
 
     override fun autoDetectInterfaceControl(fd: Int) {
         if (!vpnService.protect(fd)) {
@@ -37,7 +38,10 @@ class LibboxPlatform(
     }
 
     override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
-        VpnLog.add("PlatformInterface.closeDefaultInterfaceMonitor(): disabled for compatibility")
+        if (defaultInterfaceListener === listener) {
+            defaultInterfaceListener = null
+        }
+        VpnLog.add("PlatformInterface.closeDefaultInterfaceMonitor()")
     }
 
     override fun findConnectionOwner(
@@ -154,25 +158,16 @@ class LibboxPlatform(
     }
 
     override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
-        // gomobile callbacks must not be invoked synchronously while libbox is
-        // still entering startDefaultInterfaceMonitor(): that caused the old
-        // native crash. Publish the current Android uplink after the call has
-        // returned, on a dedicated thread. A one-shot update is sufficient for
-        // startup; reconnect/AUTO handles a later physical network change.
+        defaultInterfaceListener = listener
+        // Do not call back synchronously from this gomobile entry point. The
+        // route service is not fully installed yet and silently loses an early
+        // update. Retry after startup so both CommandServer and the Hysteria
+        // outbound see the Android uplink.
         Thread {
-            runCatching {
-                val network = underlyingNetwork()
-                    ?: error("Android has no physical default network")
-                val link = connectivityManager.getLinkProperties(network)
-                    ?: error("Android default network has no LinkProperties")
-                val name = link.interfaceName
-                    ?: error("Android default network has no interface name")
-                val index = java.net.NetworkInterface.getByName(name)?.index
-                    ?: error("Android interface $name was not found")
-                listener.updateDefaultInterface(name, index, false, false)
-                VpnLog.add("Default interface published to libbox: $name ($index)")
-            }.onFailure { error ->
-                VpnLog.add("Default interface update failed: ${error.message}")
+            for (delayMs in listOf(250L, 750L, 1500L, 3000L)) {
+                Thread.sleep(delayMs)
+                if (defaultInterfaceListener !== listener) return@Thread
+                publishDefaultInterface(listener)
             }
         }.apply {
             name = "batmin-default-network"
@@ -215,6 +210,32 @@ class LibboxPlatform(
                     else -> 0
                 }
             }
+    }
+
+    private fun publishDefaultInterface(listener: InterfaceUpdateListener): Boolean {
+        return runCatching {
+            val network = underlyingNetwork()
+                ?: error("Android has no physical default network")
+            val link = connectivityManager.getLinkProperties(network)
+                ?: error("Android default network has no LinkProperties")
+            val interfaceName = link.interfaceName
+                ?: error("Android default network has no interface name")
+            val interfaceIndex = java.net.NetworkInterface.getByName(interfaceName)?.index
+                ?: error("Android interface $interfaceName was not found")
+            listener.updateDefaultInterface(
+                interfaceName,
+                interfaceIndex,
+                false,
+                false
+            )
+            VpnLog.add(
+                "Default interface published to libbox: $interfaceName ($interfaceIndex)"
+            )
+            true
+        }.getOrElse { error ->
+            VpnLog.add("Default interface update failed: ${error.message}")
+            false
+        }
     }
 
 }
