@@ -21,7 +21,7 @@ class ConnectionController extends ChangeNotifier {
   // or dropped by the access network. Prefer the alternate listeners and use
   // 443 only as the last fallback.
   static const hysteriaPorts = <int>[2053, 8443, 2096, 443];
-  static const amneziaWg31Port = 5182;
+  static const amneziaWgPorts = <int>[5182, 53];
   static final Uri _ipDataPlaneProbe =
       Uri.parse('https://1.1.1.1/cdn-cgi/trace');
   static final Uri _dataPlaneProbe = Uri.parse('https://batminplatform.pro/');
@@ -247,18 +247,47 @@ class ConnectionController extends ChangeNotifier {
       }
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
-    await _bridge.startAmneziaWg(configText: configText);
-    final state = await _bridge.amneziaWgStatus();
-    if (state != 'up') throw StateError('AmneziaWG не перешёл в состояние UP');
-    await _verifyDataPlane();
-    _activeProtocol = VpnProtocol.amneziaWg;
-    _activePort = amneziaWg31Port;
-    _consecutiveHealthFailures = 0;
-    _startStatusPolling();
-    _setSnapshot(const ConnectionSnapshot(
-      status: TunnelStatus.connected,
-      message: 'AmneziaWG 3.1 подключён через UDP 5182.',
-    ));
+    Object? lastError;
+    for (final port in amneziaWgPorts) {
+      final candidate = configText.replaceFirstMapped(
+        RegExp(r'(?m)^(Endpoint\s*=\s*[^:\r\n]+:)\d+\s*$'),
+        (match) => '${match.group(1)}$port',
+      );
+      try {
+        _setSnapshot(ConnectionSnapshot(
+          status: TunnelStatus.connecting,
+          message: 'Проверяю AmneziaWG 3.1, UDP $port…',
+        ));
+        await _bridge.startAmneziaWg(configText: candidate);
+        final state = await _bridge.amneziaWgStatus();
+        if (state != 'up') {
+          throw StateError('AmneziaWG не перешёл в состояние UP');
+        }
+        await _verifyDataPlane();
+        _activeProtocol = VpnProtocol.amneziaWg;
+        _activePort = port;
+        _consecutiveHealthFailures = 0;
+        _startStatusPolling();
+        _setSnapshot(ConnectionSnapshot(
+          status: TunnelStatus.connected,
+          message: 'AmneziaWG 3.1 подключён через UDP $port.',
+        ));
+        return;
+      } catch (error) {
+        lastError = error;
+        try {
+          await _bridge.stopAmneziaWg();
+        } catch (_) {
+          // Continue with the alternate endpoint even if the failed native
+          // attempt already tore its backend down.
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+      }
+    }
+    throw StateError(
+      'AmneziaWG не передаёт трафик ни через UDP 5182, ни через UDP 53: '
+      '$lastError',
+    );
   }
 
   Future<void> _refreshActiveStatus() async {
