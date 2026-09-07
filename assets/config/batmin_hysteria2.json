@@ -10,6 +10,7 @@
         "tag": "dns-remote",
         "server": "1.1.1.1",
         "server_port": 53,
+        "strategy": "ipv4_only",
         "detour": "batmin-hy2"
       }
     ],
@@ -20,10 +21,9 @@
       "type": "tun",
       "tag": "tun-in",
       "address": [
-        "172.19.0.1/30",
-        "fdfe:dcba:9876::1/126"
+        "172.19.0.1/30"
       ],
-      "mtu": 1400,
+      "mtu": 1280,
       "auto_route": true,
       "strict_route": true,
       "stack": "mixed"
