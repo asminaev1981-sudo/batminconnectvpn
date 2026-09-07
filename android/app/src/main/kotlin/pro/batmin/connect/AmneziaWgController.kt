@@ -50,6 +50,12 @@ class AmneziaWgController(context: Context) {
             }
 
             VpnLog.add("AWG: tunnel UP")
+        }.onFailure { error ->
+            val cause = generateSequence(error) { it.cause }
+                .joinToString(" <- ") { item ->
+                    "${item.javaClass.simpleName}: ${item.message ?: "no message"}"
+                }
+            VpnLog.add("AWG failure: $cause")
         }
     }
 

@@ -236,6 +236,17 @@ class ConnectionController extends ChangeNotifier {
       status: TunnelStatus.connecting,
       message: 'Запускаю AmneziaWG 3.1…',
     ));
+    // Android permits only one VpnService owner. A failed Hysteria attempt can
+    // leave its service releasing the TUN descriptor for a short time.
+    await _bridge.stop();
+    for (var attempt = 0; attempt < 10; attempt++) {
+      final native = await _bridge.status();
+      if (native.state == NativeVpnState.stopped ||
+          native.state == NativeVpnState.error) {
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
     await _bridge.startAmneziaWg(configText: configText);
     final state = await _bridge.amneziaWgStatus();
     if (state != 'up') throw StateError('AmneziaWG не перешёл в состояние UP');

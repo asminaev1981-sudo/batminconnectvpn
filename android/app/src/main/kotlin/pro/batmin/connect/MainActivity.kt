@@ -159,10 +159,14 @@ class MainActivity : FlutterActivity() {
                 result.success(null)
             }
             .onFailure { error ->
-                VpnLog.add("AWG start failed: ${error.message}")
+                val cause = generateSequence(error) { it.cause }
+                    .joinToString(" <- ") { item ->
+                        "${item.javaClass.simpleName}: ${item.message ?: "no message"}"
+                    }
+                VpnLog.add("AWG start failed: $cause")
                 result.error(
                     "AWG_START_FAILED",
-                    error.message ?: "Unable to start AmneziaWG",
+                    cause,
                     null
                 )
             }

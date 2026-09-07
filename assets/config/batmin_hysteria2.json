@@ -10,7 +10,6 @@
         "tag": "dns-remote",
         "server": "1.1.1.1",
         "server_port": 53,
-        "strategy": "ipv4_only",
         "detour": "batmin-hy2"
       }
     ],
