@@ -18,7 +18,7 @@ android {
     ndkVersion flutter.ndkVersion
     defaultConfig {
         applicationId "pro.batmin.connect"
-        minSdk 23
+        minSdkVersion flutter.minSdkVersion
         targetSdk flutter.targetSdkVersion
         versionCode flutter.versionCode
         versionName flutter.versionName
@@ -37,5 +37,11 @@ dependencies {
     def libboxAar = file("libs/libbox.aar")
     if (libboxAar.exists()) {
         implementation files(libboxAar)
+    }
+
+    // Native AmneziaWG engine
+    def amneziaWgAar = file("libs/awg/amneziawg-tunnel-debug.aar")
+    if (amneziaWgAar.exists()) {
+        implementation files(amneziaWgAar)
     }
 }

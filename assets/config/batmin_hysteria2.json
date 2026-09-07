@@ -6,20 +6,23 @@
   "dns": {
     "servers": [
       {
-        "type": "local",
-        "tag": "dns-local"
+        "type": "tcp",
+        "tag": "dns-remote",
+        "server": "1.1.1.1",
+        "server_port": 53,
+        "detour": "batmin-hy2"
       }
     ],
-    "final": "dns-local"
+    "final": "dns-remote"
   },
   "inbounds": [
     {
       "type": "tun",
       "tag": "tun-in",
       "address": [
-        "172.19.0.1/30",
-        "fdfe:dcba:9876::1/126"
+        "172.19.0.1/30"
       ],
+      "mtu": 1280,
       "auto_route": true,
       "strict_route": true,
       "stack": "mixed"
@@ -40,7 +43,21 @@
     }
   ],
   "route": {
-    "final": "batmin-hy2",
-    "auto_detect_interface": true
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "network": "udp",
+        "port": 443,
+        "action": "reject"
+      }
+    ],
+    "auto_detect_interface": true,
+    "final": "batmin-hy2"
   }
 }

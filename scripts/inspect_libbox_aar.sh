@@ -33,3 +33,7 @@ inspect() {
 inspect io.nekohasekai.libbox.PlatformInterface
 inspect io.nekohasekai.libbox.Libbox
 inspect io.nekohasekai.libbox.OverrideOptions
+inspect io.nekohasekai.libbox.NetworkInterface
+inspect io.nekohasekai.libbox.NetworkInterfaceIterator
+inspect io.nekohasekai.libbox.InterfaceUpdateListener
+inspect io.nekohasekai.libbox.TunOptions

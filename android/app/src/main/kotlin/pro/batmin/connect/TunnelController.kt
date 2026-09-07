@@ -35,9 +35,9 @@ class TunnelController(private val vpnService: BatminVpnService) {
             if (inbounds == null || inbounds.length() == 0) {
                 StartResult(false, "В профиле отсутствует inbound TUN")
             } else if (outbounds == null || outbounds.length() == 0) {
-                StartResult(false, "В профиле отсутствует outbound Hysteria2")
+                StartResult(false, "В VPN-профиле отсутствует outbound")
             } else {
-                StartResult(true, "Профиль Hysteria2 прошёл проверку")
+                StartResult(true, "VPN-профиль прошёл проверку")
             }
         } catch (error: Exception) {
             StartResult(false, "Некорректный JSON-профиль: ${error.message}")
@@ -92,6 +92,12 @@ class TunnelController(private val vpnService: BatminVpnService) {
             }
 
             server.startOrReloadService(profileJson, overrideOptions)
+
+            if (!platform.awaitDefaultInterface(5_000)) {
+                throw IllegalStateException(
+                    "Android не передал физический сетевой интерфейс в libbox"
+                )
+            }
 
             commandServer = server
 

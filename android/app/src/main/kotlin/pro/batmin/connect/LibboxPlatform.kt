@@ -1,7 +1,15 @@
 package pro.batmin.connect
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.os.Build
+import android.system.OsConstants
 import io.nekohasekai.libbox.ConnectionOwner
+import io.nekohasekai.libbox.ExchangeContext
 import io.nekohasekai.libbox.InterfaceUpdateListener
+import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.LocalDNSTransport
 import io.nekohasekai.libbox.NetworkInterface
 import io.nekohasekai.libbox.NetworkInterfaceIterator
@@ -10,10 +18,17 @@ import io.nekohasekai.libbox.PlatformInterface
 import io.nekohasekai.libbox.StringIterator
 import io.nekohasekai.libbox.TunOptions
 import io.nekohasekai.libbox.WIFIState
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.UnknownHostException
 
 class LibboxPlatform(
     private val vpnService: BatminVpnService
 ) : PlatformInterface {
+    private val connectivityManager =
+        vpnService.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    @Volatile private var defaultInterfaceListener: InterfaceUpdateListener? = null
+    @Volatile private var defaultInterfacePublished = false
 
     override fun autoDetectInterfaceControl(fd: Int) {
         if (!vpnService.protect(fd)) {
@@ -26,6 +41,10 @@ class LibboxPlatform(
     }
 
     override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
+        if (defaultInterfaceListener === listener) {
+            defaultInterfaceListener = null
+            defaultInterfacePublished = false
+        }
         VpnLog.add("PlatformInterface.closeDefaultInterfaceMonitor()")
     }
 
@@ -40,20 +59,59 @@ class LibboxPlatform(
     }
 
     override fun getInterfaces(): NetworkInterfaceIterator {
-        return object : NetworkInterfaceIterator {
-            override fun hasNext(): Boolean = false
-
-            override fun next(): NetworkInterface {
-                throw NoSuchElementException("No platform interfaces")
+        val interfaces = connectivityManager.allNetworks.mapNotNull { network ->
+            val capabilities = connectivityManager.getNetworkCapabilities(network)
+                ?: return@mapNotNull null
+            if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) {
+                return@mapNotNull null
             }
+            val link = connectivityManager.getLinkProperties(network)
+                ?: return@mapNotNull null
+            val interfaceName = link.interfaceName ?: return@mapNotNull null
+            val systemInterface = runCatching {
+                java.net.NetworkInterface.getByName(interfaceName)
+            }.getOrNull() ?: return@mapNotNull null
+
+            NetworkInterface().apply {
+                name = interfaceName
+                index = systemInterface.index
+                mtu = link.mtu.takeIf { it > 0 } ?: systemInterface.mtu
+                dnsServer = StringListIterator(
+                    link.dnsServers.mapNotNull { it.hostAddress }
+                )
+                type = when {
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ->
+                        Libbox.InterfaceTypeWIFI
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ->
+                        Libbox.InterfaceTypeCellular
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ->
+                        Libbox.InterfaceTypeEthernet
+                    else -> Libbox.InterfaceTypeOther
+                }
+                flags = if (capabilities.hasCapability(
+                        NetworkCapabilities.NET_CAPABILITY_INTERNET
+                    )) {
+                    OsConstants.IFF_UP or OsConstants.IFF_RUNNING
+                } else {
+                    0
+                }
+                metered = !capabilities.hasCapability(
+                    NetworkCapabilities.NET_CAPABILITY_NOT_METERED
+                )
+                // libbox parses these values as netip.Prefix, not bare IPs.
+                addresses = StringListIterator(link.linkAddresses.map { it.toString() })
+            }
+        }
+        return object : NetworkInterfaceIterator {
+            private var position = 0
+            override fun hasNext(): Boolean = position < interfaces.size
+            override fun next(): NetworkInterface = interfaces[position++]
         }
     }
 
     override fun includeAllNetworks(): Boolean = false
 
-    override fun localDNSTransport(): LocalDNSTransport {
-        throw UnsupportedOperationException("Local DNS transport is not enabled")
-    }
+    override fun localDNSTransport(): LocalDNSTransport = AndroidLocalDnsTransport(vpnService)
 
     override fun openTun(options: TunOptions): Int {
         VpnLog.add(
@@ -63,6 +121,10 @@ class LibboxPlatform(
         val builder = vpnService.Builder()
             .setSession("Batmin Connect")
             .setMtu(options.mtu)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            builder.setMetered(false)
+        }
 
         fun addAddresses(iterator: io.nekohasekai.libbox.RoutePrefixIterator) {
             while (iterator.hasNext()) {
@@ -81,8 +143,24 @@ class LibboxPlatform(
         addAddresses(options.inet4Address)
         addAddresses(options.inet6Address)
 
-        addRoutes(options.inet4RouteAddress)
-        addRoutes(options.inet6RouteAddress)
+        if (options.autoRoute) {
+            // Android 13 introduced IpPrefix/excludeRoute support. On older
+            // releases libbox supplies the already-expanded route ranges
+            // instead; reading inet*RouteAddress there leaves the VPN without
+            // a default route even though the TUN itself is established.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                addRoutes(options.inet4RouteAddress)
+                addRoutes(options.inet6RouteAddress)
+            } else {
+                addRoutes(options.inet4RouteRange)
+                addRoutes(options.inet6RouteRange)
+            }
+        }
+
+        underlyingNetwork()?.let { network ->
+            builder.setUnderlyingNetworks(arrayOf(network))
+            VpnLog.add("Android TUN underlying network selected")
+        }
 
         val dns = options.dnsServerAddress.value
         if (dns.isNotBlank()) {
@@ -106,7 +184,22 @@ class LibboxPlatform(
     }
 
     override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
-        VpnLog.add("PlatformInterface.startDefaultInterfaceMonitor()")
+        defaultInterfaceListener = listener
+        defaultInterfacePublished = false
+        // Do not call back synchronously from this gomobile entry point. The
+        // route service is not fully installed yet and silently loses an early
+        // update. Retry after startup so both CommandServer and the Hysteria
+        // outbound see the Android uplink.
+        Thread {
+            for (delayMs in listOf(250L, 750L, 1500L, 3000L)) {
+                Thread.sleep(delayMs)
+                if (defaultInterfaceListener !== listener) return@Thread
+                publishDefaultInterface(listener)
+            }
+        }.apply {
+            name = "batmin-default-network"
+            isDaemon = true
+        }.start()
     }
 
     override fun systemCertificates(): StringIterator {
@@ -123,5 +216,119 @@ class LibboxPlatform(
 
     override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
 
-    override fun useProcFS(): Boolean = true
+    // Android 10+ restricts /proc network inspection. libbox must use the
+    // PlatformInterface inventory above, otherwise it reports
+    // "no available network interface" after receiving a TUN packet.
+    override fun useProcFS(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+
+    fun awaitDefaultInterface(timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (!defaultInterfacePublished && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25)
+        }
+        return defaultInterfacePublished
+    }
+
+    private fun underlyingNetwork(): Network? {
+        return connectivityManager.allNetworks
+            .filter { network ->
+                connectivityManager.getNetworkCapabilities(network)?.let { capabilities ->
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+                } == true
+            }
+            .maxByOrNull { network ->
+                val capabilities = connectivityManager.getNetworkCapabilities(network)!!
+                when {
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) -> 2
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) -> 1
+                    else -> 0
+                }
+            }
+    }
+
+    private fun publishDefaultInterface(listener: InterfaceUpdateListener): Boolean {
+        return runCatching {
+            val network = underlyingNetwork()
+                ?: error("Android has no physical default network")
+            val link = connectivityManager.getLinkProperties(network)
+                ?: error("Android default network has no LinkProperties")
+            val interfaceName = link.interfaceName
+                ?: error("Android default network has no interface name")
+            val interfaceIndex = java.net.NetworkInterface.getByName(interfaceName)?.index
+                ?: error("Android interface $interfaceName was not found")
+            listener.updateDefaultInterface(
+                interfaceName,
+                interfaceIndex,
+                false,
+                false
+            )
+            defaultInterfacePublished = true
+            VpnLog.add(
+                "Default interface published to libbox: $interfaceName ($interfaceIndex)"
+            )
+            true
+        }.getOrElse { error ->
+            VpnLog.add("Default interface update failed: ${error.message}")
+            false
+        }
+    }
+
+}
+
+private class StringListIterator(private val values: List<String>) : StringIterator {
+    private var position = 0
+    override fun hasNext(): Boolean = position < values.size
+    override fun len(): Int = values.size
+    override fun next(): String = values[position++]
+}
+
+/**
+ * Resolves names on an underlying Android network instead of feeding DNS back
+ * into the VPN TUN. Raw DNS exchange is deliberately disabled: the lookup API
+ * works on every Android version supported by the application and is all
+ * libbox needs when [raw] returns false.
+ */
+private class AndroidLocalDnsTransport(context: Context) : LocalDNSTransport {
+    private val connectivityManager =
+        context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+    override fun raw(): Boolean = false
+
+    override fun exchange(ctx: ExchangeContext, message: ByteArray) {
+        throw UnsupportedOperationException("Raw DNS exchange is not supported")
+    }
+
+    override fun lookup(ctx: ExchangeContext, network: String, domain: String) {
+        try {
+            val addresses = underlyingNetwork().getAllByName(domain).filter { address ->
+                when {
+                    network.endsWith("4") -> address is Inet4Address
+                    network.endsWith("6") -> address is Inet6Address
+                    else -> true
+                }
+            }
+
+            if (addresses.isEmpty()) {
+                ctx.errorCode(RCODE_NXDOMAIN)
+            } else {
+                ctx.success(addresses.mapNotNull { it.hostAddress }.joinToString("\n"))
+            }
+        } catch (_: UnknownHostException) {
+            ctx.errorCode(RCODE_NXDOMAIN)
+        }
+    }
+
+    private fun underlyingNetwork(): Network {
+        return connectivityManager.allNetworks.firstOrNull { network ->
+            connectivityManager.getNetworkCapabilities(network)?.let { capabilities ->
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            } == true
+        } ?: throw IllegalStateException("No underlying network is available for DNS")
+    }
+
+    private companion object {
+        const val RCODE_NXDOMAIN = 3
+    }
 }

@@ -1,13 +1,17 @@
 package pro.batmin.connect
 
 /**
- * Runtime probe for the generated gomobile bindings.
+ * Runtime probe for the generated gomobile libbox bindings.
  *
- * Keeping discovery reflective allows the Flutter/Android shell to compile
- * before the large AAR is built. It also prevents a false "engine ready"
- * status when an incompatible AAR is accidentally supplied.
+ * Batmin Connect uses the CommandServer API exposed by the pinned libbox:
+ *
+ *   Libbox.checkConfig(String)
+ *   Libbox.newCommandServer(CommandServerHandler, PlatformInterface)
+ *
+ * Older probes expected newService(), which is not part of this libbox API.
  */
 object LibboxRuntime {
+
     private val candidateClassNames = listOf(
         "io.nekohasekai.libbox.Libbox",
         "libbox.Libbox"
@@ -27,35 +31,49 @@ object LibboxRuntime {
             } catch (_: ClassNotFoundException) {
                 continue
             } catch (error: Throwable) {
-                return Probe(false, message = "Ошибка загрузки $name: ${error.message}")
+                return Probe(
+                    false,
+                    message = "Ошибка загрузки $name: ${error.message}"
+                )
             }
 
             val methods = clazz.methods
                 .map { method ->
-                    val args = method.parameterTypes.joinToString(",") { it.simpleName }
+                    val args = method.parameterTypes.joinToString(",") {
+                        it.simpleName
+                    }
                     "${method.name}($args):${method.returnType.simpleName}"
                 }
                 .distinct()
                 .sorted()
 
-            val hasServiceFactory = methods.any {
-                it.startsWith("newService(") || it.startsWith("NewService(")
-            }
             val hasConfigCheck = methods.any {
-                it.startsWith("checkConfig(") || it.startsWith("CheckConfig(")
+                it.startsWith("checkConfig(") ||
+                it.startsWith("CheckConfig(")
             }
-            val compatible = hasServiceFactory && hasConfigCheck
+
+            val hasCommandServerFactory = methods.any {
+                it.startsWith("newCommandServer(") ||
+                it.startsWith("NewCommandServer(")
+            }
+
+            val compatible = hasConfigCheck && hasCommandServerFactory
+
             return Probe(
                 available = compatible,
                 className = name,
                 publicMethods = methods,
                 message = if (compatible) {
-                    "libbox обнаружен; API newService/checkConfig доступен"
+                    "libbox готов: checkConfig/newCommandServer доступны"
                 } else {
-                    "libbox найден, но обязательные методы newService/checkConfig не обнаружены"
+                    "libbox найден, но API checkConfig/newCommandServer неполный"
                 }
             )
         }
-        return Probe(false, message = "libbox.aar отсутствует в android/app/libs")
+
+        return Probe(
+            false,
+            message = "libbox.aар отсутствует или класс Libbox недоступен"
+        )
     }
 }
