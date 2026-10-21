@@ -1,5 +1,5 @@
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/models/vpn_profile.dart';
 import '../../core/services/profile_import_service.dart';
@@ -49,6 +49,167 @@ class _ProfilesPageState extends State<ProfilesPage> {
     }
   }
 
+  Future<void> _showImportMenu() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text(
+                'Добавить VPN-профиль',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              subtitle: Text('Выберите способ импорта'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.content_paste),
+              title: const Text('Из буфера обмена'),
+              subtitle: const Text(
+                'Ссылка или текст конфигурации',
+              ),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _importFromClipboard();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_note),
+              title: const Text('Вставить вручную'),
+              subtitle: const Text(
+                'Открыть поле для конфигурации',
+              ),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _showManualImportDialog();
+              },
+            ),
+            const ListTile(
+              enabled: false,
+              leading: Icon(
+                Icons.insert_drive_file_outlined,
+              ),
+              title: Text('Из файла'),
+              subtitle: Text(
+                'Подключим следующим этапом',
+              ),
+            ),
+            const ListTile(
+              enabled: false,
+              leading: Icon(Icons.qr_code_scanner),
+              title: Text('QR-код'),
+              subtitle: Text(
+                'Камера и изображение — следующим этапом',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _importFromClipboard() async {
+    try {
+      final data = await Clipboard.getData(
+        Clipboard.kTextPlain,
+      );
+
+      final text = data?.text?.trim() ?? '';
+
+      if (text.isEmpty) {
+        _showMessage('Буфер обмена пуст');
+        return;
+      }
+
+      final profile = await _profiles.importClipboard(
+        text,
+      );
+
+      await _loadProfiles();
+
+      _showMessage(
+        'Профиль «${profile.name}» добавлен',
+      );
+    } on FormatException catch (error) {
+      _showMessage(error.message.toString());
+    } catch (error) {
+      _showMessage(
+        'Не удалось импортировать профиль: $error',
+      );
+    }
+  }
+
+  Future<void> _showManualImportDialog() async {
+    final controller = TextEditingController();
+
+    final text = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Вставить конфигурацию'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: TextField(
+            controller: controller,
+            autofocus: true,
+            minLines: 6,
+            maxLines: 14,
+            keyboardType: TextInputType.multiline,
+            decoration: const InputDecoration(
+              hintText:
+                  'hysteria2://...\n\n'
+                  'vless://...\n\n'
+                  '[Interface] ...',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext),
+            child: const Text('ОТМЕНА'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              controller.text,
+            ),
+            child: const Text('ИМПОРТ'),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+
+    if (text == null || text.trim().isEmpty) {
+      return;
+    }
+
+    try {
+      final profile = await _profiles.importText(
+        text,
+        source: VpnProfileSource.clipboard,
+      );
+
+      await _loadProfiles();
+
+      _showMessage(
+        'Профиль «${profile.name}» добавлен',
+      );
+    } on FormatException catch (error) {
+      _showMessage(error.message.toString());
+    } catch (error) {
+      _showMessage(
+        'Не удалось импортировать профиль: $error',
+      );
+    }
+  }
+
   Future<void> _setEnabled(
     VpnProfile profile,
     bool enabled,
@@ -69,7 +230,9 @@ class _ProfilesPageState extends State<ProfilesPage> {
     }
   }
 
-  Future<void> _deleteProfile(VpnProfile profile) async {
+  Future<void> _deleteProfile(
+    VpnProfile profile,
+  ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -77,11 +240,13 @@ class _ProfilesPageState extends State<ProfilesPage> {
         content: Text(profile.name),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () =>
+                Navigator.pop(context, false),
             child: const Text('ОТМЕНА'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () =>
+                Navigator.pop(context, true),
             child: const Text('УДАЛИТЬ'),
           ),
         ],
@@ -91,7 +256,8 @@ class _ProfilesPageState extends State<ProfilesPage> {
     if (confirmed != true) return;
 
     try {
-      final items = await _profiles.deleteProfile(profile.id);
+      final items =
+          await _profiles.deleteProfile(profile.id);
 
       if (!mounted) return;
 
@@ -107,7 +273,9 @@ class _ProfilesPageState extends State<ProfilesPage> {
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(
+        content: Text(message),
+      ),
     );
   }
 
@@ -148,12 +316,9 @@ class _ProfilesPageState extends State<ProfilesPage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          _showMessage(
-            'Импорт профиля подключим следующим шагом',
-          );
-        },
+      floatingActionButton:
+          FloatingActionButton.extended(
+        onPressed: _showImportMenu,
         icon: const Icon(Icons.add),
         label: const Text('Добавить'),
       ),
@@ -173,7 +338,8 @@ class _ProfilesPageState extends State<ProfilesPage> {
 
     if (_error != null) {
       return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics:
+            const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(20),
         children: [
           const SizedBox(height: 80),
@@ -185,7 +351,8 @@ class _ProfilesPageState extends State<ProfilesPage> {
           Text(
             'Не удалось загрузить профили',
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleMedium,
+            style:
+                Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
           Text(
@@ -198,7 +365,8 @@ class _ProfilesPageState extends State<ProfilesPage> {
 
     if (_items.isEmpty) {
       return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics:
+            const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(24),
         children: [
           const SizedBox(height: 100),
@@ -210,7 +378,8 @@ class _ProfilesPageState extends State<ProfilesPage> {
           Text(
             'Профилей пока нет',
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleLarge,
+            style:
+                Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 10),
           const Text(
@@ -223,8 +392,10 @@ class _ProfilesPageState extends State<ProfilesPage> {
     }
 
     return ListView.separated(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+      physics:
+          const AlwaysScrollableScrollPhysics(),
+      padding:
+          const EdgeInsets.fromLTRB(16, 12, 16, 100),
       itemCount: _items.length,
       separatorBuilder: (_, __) =>
           const SizedBox(height: 10),
@@ -238,7 +409,9 @@ class _ProfilesPageState extends State<ProfilesPage> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.shield_outlined),
+                    const Icon(
+                      Icons.shield_outlined,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -248,7 +421,8 @@ class _ProfilesPageState extends State<ProfilesPage> {
                           Text(
                             profile.name,
                             style: const TextStyle(
-                              fontWeight: FontWeight.w700,
+                              fontWeight:
+                                  FontWeight.w700,
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -262,19 +436,26 @@ class _ProfilesPageState extends State<ProfilesPage> {
                     Switch(
                       value: profile.enabled,
                       onChanged: (value) =>
-                          _setEnabled(profile, value),
+                          _setEnabled(
+                        profile,
+                        value,
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
+                  mainAxisAlignment:
+                      MainAxisAlignment.end,
                   children: [
                     TextButton.icon(
                       onPressed: () =>
                           _deleteProfile(profile),
-                      icon: const Icon(Icons.delete_outline),
-                      label: const Text('Удалить'),
+                      icon: const Icon(
+                        Icons.delete_outline,
+                      ),
+                      label:
+                          const Text('Удалить'),
                     ),
                   ],
                 ),
